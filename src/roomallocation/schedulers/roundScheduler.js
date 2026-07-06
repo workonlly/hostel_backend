@@ -30,6 +30,7 @@ import pool from '../../db/pool.js';
 import { allocationService } from '../services/allocation.service.js';
 import { emit, WS_EVENTS } from '../websocket/emitter.js';
 import { ROUND_DURATION_MS, MAX_ROUNDS } from '../constants/testConfig.js';
+import { writeAllocationOutput } from '../utils/allocationOutputWriter.js';
 
 // Will be injected to avoid circular dep (evaluationScheduler uses roundScheduler)
 let _evaluationScheduler = null;
@@ -225,6 +226,35 @@ export async function executeRound(batchId, round) {
     }
 
     console.log(`[roundScheduler] Round ${round} complete:`, result);
+
+    // ── Write CSV + log to outputs/<hostel>/ ─────────────
+    try {
+        const batchMeta = await pool.query(
+            `SELECT b.batch_number, b.hostel_id, h.name AS hostel_name
+             FROM batch b
+             JOIN hostel h ON h.id = b.hostel_id
+             WHERE b.id = $1`,
+            [batchId]
+        );
+
+        if (batchMeta.rowCount > 0 && result && !result.error) {
+            const { batch_number, hostel_id, hostel_name } = batchMeta.rows[0];
+            await writeAllocationOutput({
+                hostelName:  hostel_name,
+                hostelId:    hostel_id,
+                batchId,
+                batchNumber: batch_number,
+                roundNumber: round,
+                results:     result.results ?? [],
+                allocated:   result.allocated ?? 0,
+                failed:      result.failed ?? 0,
+                processed:   result.processed ?? 0,
+            });
+        }
+    } catch (err) {
+        // Output write failures must never disrupt allocation
+        console.error(`[roundScheduler] writeAllocationOutput error (swallowed):`, err.message);
+    }
 
     emit(WS_EVENTS.ROUND_EXECUTED, { batchId, round, result });
 

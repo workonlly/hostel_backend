@@ -5,7 +5,9 @@ import auth from "../middleware/middleware.js";
 import {
     searchByNameOrRollno,
     sortStudentsInRange,
-    getAllOutpassesByStatus
+    getAllOutpassesByStatus,
+    getHostelOutpassesByStatus,
+    assignAttendent
 } from "../controllers/student.controller.js";
 import pool from "../db/pool.js";
 
@@ -75,12 +77,20 @@ router.post(
     auth,
     sortStudentsInRange
 );
-
+router.post(
+    "/assign-attendent",
+    assignAttendent
+);
 /*
 =================================================
 OUTPASSES BY STATUS
 =================================================
 */
+router.post(
+    "/hostel-status",
+    auth,
+    getHostelOutpassesByStatus
+);
 router.post(
     "/status",
     auth,

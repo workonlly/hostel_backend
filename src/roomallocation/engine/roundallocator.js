@@ -33,6 +33,7 @@ import {
     logAllocationFailure,
     logEvent,
 } from './allocationLogger.js';
+import { printAllocationProgress } from '../utils/allocationOutputWriter.js';
 
 // ─────────────────────────────────────────────────────────
 // MAIN ENTRY POINT
@@ -78,6 +79,7 @@ export async function processRound({ batchId, roundNumber, submissions }) {
     const results = [];
     let allocated = 0;
     let failed = 0;
+    const total = sorted.length;
 
     for (const submission of sorted) {
         const result = await _processSubmission({ batchId, roundNumber, submission });
@@ -85,6 +87,15 @@ export async function processRound({ batchId, roundNumber, submissions }) {
 
         if (result.success) allocated++;
         else failed++;
+
+        // ── Terminal progress (dev-only) ──────────────────
+        printAllocationProgress({
+            allocated,
+            total,
+            groupId: result.groupId ?? submission.group_id,
+            roomNumber: result.roomNumber ?? null,
+            success: result.success && !result.skipped,
+        });
     }
 
     await logEvent('ROUND_COMPLETE', { batchId, roundNumber, allocated, failed });
@@ -245,6 +256,7 @@ async function _processSubmission({ batchId, roundNumber, submission }) {
                 success: true,
                 groupId: group_id,
                 roomId: room.id,
+                roomNumber: room.room_number ?? null,
                 memberIds,
                 preferenceOrder: selection.preferenceOrder,
             };

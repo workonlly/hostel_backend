@@ -8,6 +8,7 @@ import {
     getActiveOutpass,
     getOutpassById,
     cancelOutpass,
+    bulkOutpassAction,
     getPendingOutpasses,
     approveOutpass,
     rejectOutpass,
@@ -53,7 +54,11 @@ router.patch(
 ATTENDENT ROUTES
 =================================================
 */
-
+router.patch(
+  "/bulk-action",
+  auth,
+  bulkOutpassAction
+);
 router.get(
     "/pending",
     auth,

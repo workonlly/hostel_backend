@@ -115,20 +115,30 @@ class AllocationService {
                 throw new Error('Preference list contains duplicate room IDs');
             }
 
-            // Validate all submitted room IDs exist in this hostel
+            // ─── Pool-aware validation ───────────────────────────────────────
+            // Validate all submitted room IDs exist in the allocation pool
+            // for this source hostel. The pool may span multiple TO hostels.
             const roomCheckRes = await client.query(
-                `SELECT id FROM room WHERE id = ANY($1::uuid[]) AND hostel_id = $2`,
+                `SELECT r.id
+                 FROM room r
+                 JOIN allocation_room_pool arp ON arp.room_id = r.id
+                 WHERE r.id = ANY($1::uuid[])
+                   AND arp.source_hostel_id = $2`,
                 [preferences, batch.hostel_id]
             );
             if (roomCheckRes.rowCount !== preferences.length) {
                 const foundIds = new Set(roomCheckRes.rows.map(r => r.id));
                 const invalid = preferences.filter(id => !foundIds.has(id));
-                throw new Error(`Invalid or non-existent room IDs: ${invalid.join(', ')}`);
+                throw new Error(`Invalid or non-existent room IDs (not in allocation pool): ${invalid.join(', ')}`);
             }
 
-            // Check available room count (max 10 preferences)
+            // Count available rooms in the pool for this source hostel
             const availableRoomsRes = await client.query(
-                'SELECT COUNT(*) as cnt FROM room WHERE hostel_id = $1 AND current_occupancy < max_capacity',
+                `SELECT COUNT(*) as cnt
+                 FROM room r
+                 JOIN allocation_room_pool arp ON arp.room_id = r.id
+                 WHERE arp.source_hostel_id = $1
+                   AND r.current_occupancy < r.max_capacity`,
                 [batch.hostel_id]
             );
             const availableCount = parseInt(availableRoomsRes.rows[0].cnt, 10);
@@ -301,44 +311,151 @@ class AllocationService {
             }
         }
 
-        // Both Warden and Student views MUST use the true r.current_occupancy to prevent 
-        // assigning students to beds already occupied by ACTIVE seniors or other UPCOMING students.
-        // We can still provide cohort-specific counts if needed, but the primary occupancy must be true occupancy.
-        const query = joiningYear
-            ? `
-                SELECT r.id, 
-                       r.room_number, 
-                       r.max_capacity, 
-                       r.current_occupancy,
-                       (SELECT COUNT(*)::int FROM room_assignment ra JOIN student s ON s.id = ra.student_id WHERE ra.room_id = r.id AND ra.assignment_status = 'UPCOMING' AND s.joining_year = $2) as cohort_occupancy,
-                       (r.max_capacity - r.current_occupancy) as remaining_beds,
-                       (r.current_occupancy < r.max_capacity) as available
-                FROM room r
-                WHERE r.hostel_id = $1
-                ORDER BY r.room_number ASC
-            `
-            : `
-                SELECT r.id, 
-                       r.room_number, 
-                       r.max_capacity, 
-                       r.current_occupancy,
-                       (r.max_capacity - r.current_occupancy) as remaining_beds,
-                       (r.current_occupancy < r.max_capacity) as available
-                FROM room r
-                WHERE r.hostel_id = $1
-                ORDER BY r.room_number ASC
-            `;
-            
-        const params = joiningYear ? [hostelId, joiningYear] : [hostelId];
+        // ── Pool-aware room lookup ─────────────────────────────────────────────
+        // Check if there is an allocation_room_pool configured for this hostel.
+        // If so, return exactly those rooms (across any number of TO hostels).
+        // Falls back to target_hostel_id (legacy) if no pool rows exist,
+        // and ultimately to the hostel's own rooms if neither is set.
+        const poolCountRes = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM allocation_room_pool WHERE source_hostel_id = $1`,
+            [hostelId]
+        );
+        const hasPool = parseInt(poolCountRes.rows[0].cnt, 10) > 0;
+
+        let query, params;
+
+        if (hasPool) {
+            // New path: return rooms from the configured pool
+            if (joiningYear) {
+                query = `
+                    SELECT r.id,
+                           r.room_number,
+                           r.max_capacity,
+                           r.current_occupancy,
+                           r.hostel_id,
+                           h.name AS hostel_name,
+                           (SELECT COUNT(*)::int
+                            FROM room_assignment ra
+                            JOIN student s ON s.id = ra.student_id
+                            WHERE ra.room_id = r.id
+                              AND ra.assignment_status = 'UPCOMING'
+                              AND s.joining_year = $2
+                           ) AS cohort_occupancy,
+                           (r.max_capacity - r.current_occupancy) AS remaining_beds,
+                           (r.current_occupancy < r.max_capacity)  AS available,
+                           (
+                               SELECT json_agg(json_build_object(
+                                   'id', s.id, 'name', s.name,
+                                   'roll_no', s.roll_no, 'branch', s.department
+                               ))
+                               FROM room_assignment ra
+                               JOIN student s ON s.id = ra.student_id
+                               WHERE ra.room_id = r.id
+                                 AND ra.assignment_status IN ('ACTIVE','UPCOMING')
+                           ) AS occupants
+                    FROM room r
+                    JOIN allocation_room_pool arp ON arp.room_id = r.id
+                    JOIN hostel h ON h.id = r.hostel_id
+                    WHERE arp.source_hostel_id = $1
+                    ORDER BY h.name, r.room_number ASC
+                `;
+                params = [hostelId, joiningYear];
+            } else {
+                query = `
+                    SELECT r.id,
+                           r.room_number,
+                           r.max_capacity,
+                           r.current_occupancy,
+                           r.hostel_id,
+                           h.name AS hostel_name,
+                           (r.max_capacity - r.current_occupancy) AS remaining_beds,
+                           (r.current_occupancy < r.max_capacity)  AS available,
+                           (
+                               SELECT json_agg(json_build_object(
+                                   'id', s.id, 'name', s.name,
+                                   'roll_no', s.roll_no, 'branch', s.department
+                               ))
+                               FROM room_assignment ra
+                               JOIN student s ON s.id = ra.student_id
+                               WHERE ra.room_id = r.id
+                                 AND ra.assignment_status IN ('ACTIVE','UPCOMING')
+                           ) AS occupants
+                    FROM room r
+                    JOIN allocation_room_pool arp ON arp.room_id = r.id
+                    JOIN hostel h ON h.id = r.hostel_id
+                    WHERE arp.source_hostel_id = $1
+                    ORDER BY h.name, r.room_number ASC
+                `;
+                params = [hostelId];
+            }
+        } else {
+            // Legacy fallback: single target_hostel_id
+            const targetRes = await pool.query(
+                `SELECT COALESCE(target_hostel_id, id) AS room_hostel_id FROM hostel WHERE id = $1`,
+                [hostelId]
+            );
+            const roomHostelId = targetRes.rows[0]?.room_hostel_id ?? hostelId;
+
+            if (joiningYear) {
+                query = `
+                    SELECT r.id,
+                           r.room_number,
+                           r.max_capacity,
+                           r.current_occupancy,
+                           r.hostel_id,
+                           h.name AS hostel_name,
+                           (SELECT COUNT(*)::int FROM room_assignment ra JOIN student s ON s.id = ra.student_id WHERE ra.room_id = r.id AND ra.assignment_status = 'UPCOMING' AND s.joining_year = $2) as cohort_occupancy,
+                           (r.max_capacity - r.current_occupancy) as remaining_beds,
+                           (r.current_occupancy < r.max_capacity) as available,
+                           (
+                               SELECT json_agg(json_build_object('id', s.id, 'name', s.name, 'roll_no', s.roll_no, 'branch', s.department))
+                               FROM room_assignment ra
+                               JOIN student s ON s.id = ra.student_id
+                               WHERE ra.room_id = r.id AND ra.assignment_status IN ('ACTIVE', 'UPCOMING')
+                           ) as occupants
+                    FROM room r
+                    JOIN hostel h ON h.id = r.hostel_id
+                    WHERE r.hostel_id = $1
+                    ORDER BY r.room_number ASC
+                `;
+                params = [roomHostelId, joiningYear];
+            } else {
+                query = `
+                    SELECT r.id,
+                           r.room_number,
+                           r.max_capacity,
+                           r.current_occupancy,
+                           r.hostel_id,
+                           h.name AS hostel_name,
+                           (r.max_capacity - r.current_occupancy) as remaining_beds,
+                           (r.current_occupancy < r.max_capacity) as available,
+                           (
+                               SELECT json_agg(json_build_object('id', s.id, 'name', s.name, 'roll_no', s.roll_no, 'branch', s.department))
+                               FROM room_assignment ra
+                               JOIN student s ON s.id = ra.student_id
+                               WHERE ra.room_id = r.id AND ra.assignment_status IN ('ACTIVE', 'UPCOMING')
+                           ) as occupants
+                    FROM room r
+                    JOIN hostel h ON h.id = r.hostel_id
+                    WHERE r.hostel_id = $1
+                    ORDER BY r.room_number ASC
+                `;
+                params = [roomHostelId];
+            }
+        }
+
         const roomsRes = await pool.query(query, params);
 
         return roomsRes.rows.map(room => ({
-            id: room.id,
-            roomNumber: room.room_number,
-            capacity: room.max_capacity,
-            occupancy: room.current_occupancy,
+            id:           room.id,
+            roomNumber:   room.room_number,
+            capacity:     room.max_capacity,
+            occupancy:    room.current_occupancy,
             remainingBeds: room.remaining_beds,
-            available: room.available,
+            available:    room.available,
+            hostelId:     room.hostel_id,
+            hostelName:   room.hostel_name ?? null,
+            occupants:    room.occupants || [],
         }));
     }
 
@@ -372,11 +489,14 @@ class AllocationService {
                 h.lobby_opens_at,
                 r.room_number            AS allocated_room_number,
                 r.room_type              AS allocated_room_type,
-                r.max_capacity           AS allocated_room_capacity
+                r.max_capacity           AS allocated_room_capacity,
+                h.target_hostel_id,
+                th.name                  AS target_hostel_name
             FROM student s
             LEFT JOIN housing_group hg ON s.group_id = hg.id
             LEFT JOIN batch b ON hg.batch_id = b.id
             LEFT JOIN hostel h ON s.hostel_id = h.id
+            LEFT JOIN hostel th ON th.id = h.target_hostel_id
             LEFT JOIN room r ON s.allocated_room_id = r.id
             WHERE s.id = $1
         `, [studentId]);
@@ -471,6 +591,9 @@ class AllocationService {
             is_paused:              isPaused ?? false,
             allocation_date:        allocationDate,
             lobby_opens_at:         lobbyOpensAt,
+            // Target hostel (rooms visible to this student)
+            target_hostel_id:       student.target_hostel_id ?? null,
+            target_hostel_name:     student.target_hostel_name ?? null,
             // Group info
             group_id:               student.group_id ?? null,
             group_status:           student.group_status ?? null,

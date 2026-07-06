@@ -131,6 +131,26 @@ export async function logFinalSweepSkipped({ hostelId, studentId, reason, client
 }
 
 // ─────────────────────────────────────────────────────────
+// RANK IMPORT / BATCH ASSIGNMENT LOGS
+// ─────────────────────────────────────────────────────────
+
+export async function logRankImport({ updated, skipped, total, uploadedBy, client } = {}) {
+    try {
+        await _write('RANK_IMPORT', { updated, skipped, total, uploadedBy }, client);
+    } catch (err) {
+        console.error('[allocationLogger] logRankImport error (swallowed):', err.message);
+    }
+}
+
+export async function logBatchAssignment({ hostelId, assigned, unassigned, batches, client } = {}) {
+    try {
+        await _write('BATCH_ASSIGNMENT', { hostelId, assigned, unassigned, batches }, client);
+    } catch (err) {
+        console.error('[allocationLogger] logBatchAssignment error (swallowed):', err.message);
+    }
+}
+
+// ─────────────────────────────────────────────────────────
 // GENERIC EVENT
 // ─────────────────────────────────────────────────────────
 

@@ -537,6 +537,62 @@ router.post('/signup', async (req, res) => {
         // }
 
         // ======================================================
+// WARDEN SIGNUP
+// ======================================================
+
+else if (data.role === 'warden') {
+
+    const {
+        name,
+        email,
+        password,
+        authority_level
+    } = data;
+
+    const missingFields = [];
+
+    if (!name) missingFields.push('name');
+    if (!email) missingFields.push('email');
+    if (!password) missingFields.push('password');
+    if (!authority_level) missingFields.push('authority_level');
+
+    if (missingFields.length > 0) {
+        return res.status(400).json({
+            message: `Missing required fields for warden: ${missingFields.join(', ')}`
+        });
+    }
+
+    if (![1, 2, 3].includes(Number(authority_level))) {
+        return res.status(400).json({
+            message: 'authority_level must be 1, 2, or 3'
+        });
+    }
+
+    const hashedPasswordWarden = await bcrypt.hash(password, 10);
+
+    result = await pool.query(
+        `
+        INSERT INTO admin
+        (
+            name,
+            email,
+            password_hash,
+            authority_level
+        )
+        VALUES ($1,$2,$3,$4)
+        RETURNING *
+        `,
+        [
+            name,
+            email,
+            hashedPasswordWarden,
+            authority_level
+        ]
+    );
+
+    user = result.rows[0];
+}
+        // ======================================================
         // INVALID ROLE
         // ======================================================
 

@@ -1,0 +1,121 @@
+Roll No,Name of Student,Father Name,Mobile Number,Parent Number,Category,Blood Group,Department,State,Address,Pincode
+27BCE0001,"Margarete Parker MD","Mr. Laurence Upton",6872833737,7589858098,SC,O+,"Civil Engineering","Arizona","92595 Kutch Club",507146
+27BCS0002,"Sergio Wunsch","Nathaniel Legros",8691921108,8185312751,OBC,A+,"Computer Science and Engineering","Wisconsin","2850 Chandler Shore",407128
+27BPH0003,"Zora Stracke","Crystel O'Hara",9465493037,9833374766,OBC,O+,"Engineering Physics","New Jersey","8003 Hickle Meadow",844804
+27BCH0004,"Jermaine Cremin","Prudence Williamson",8792335803,9853061442,ST,B-,"Chemical Engineering","West Virginia","54280 Eunice Parkway",994930
+27BME0005,"Colby Friesen V","Rodolfo Homenick",7212909237,6102996117,EWS,B-,"Mechanical Engineering","Wisconsin","621 Otis Grove",951395
+27BCS0006,"Chyna Pfannerstill","Tommie Walsh",7771728355,6339399809,OBC,O+,"Computer Science and Engineering","Arkansas","8465 E Pine Street",037569
+27BCS0007,"Darla Stoltenberg","Hayden Kessler DVM",6722386441,7709873159,EWS,B+,"Computer Science and Engineering","Montana","763 Park View",845646
+27BCS0008,"Laury Satterfield","Harvey Lowe",9540581969,6877508761,SC,B+,"Computer Science and Engineering","Alabama","19216 Yundt Valleys",209409
+27BCH0009,"Tomas Steuber","Dorian Waelchi-Will",8228894317,8737859899,SC,AB+,"Chemical Engineering","Oregon","7409 Hudson Ferry",148341
+27BEE0010,"Betty Beatty","Saul Turcotte",8980163805,6690646007,SC,AB-,"Electrical Engineering","Michigan","761 Willow Drive",680243
+27BEC0011,"Jeannie Hyatt","Lionel Orn",6031288388,6097000855,SC,AB-,"Electronics and Communication Engineering","Mississippi","7461 Von Canyon",027744
+27BEE0012,"Maxwell Keebler","Bert Renner V",9772328669,9646804788,GEN,A-,"Electrical Engineering","Utah","717 Murray Canyon",210106
+27BCE0013,"Melba Johns Jr.","Wilfred Rogahn",7279558912,8405162781,GEN,A+,"Civil Engineering","Louisiana","820 Jakubowski Mount",790131
+27BME0014,"Shannon Turcotte Sr.","Torrey Wolf",6597458387,9556560674,GEN,AB+,"Mechanical Engineering","New Hampshire","556 Brookside",065041
+27BMT0015,"Katrina Jacobs","Leroy Yost",7335798735,6767713277,GEN,A+,"Material Science and Engineering","Kentucky","206 Katherine Manors",340702
+27BEC0016,"Greg Roob","Cyril Reinger",7159259414,7287289973,GEN,AB+,"Electronics and Communication Engineering","New Hampshire","66944 Murphy Pike",183834
+27BCE0017,"Mr. Steven Gerhold","Melyna Kerluke",8027775472,8004878156,ST,B+,"Civil Engineering","Nebraska","939 Angie Haven",262430
+27BMT0018,"Miracle Willms","Sylvester Kuvalis",9850430585,6566880143,OBC,B+,"Material Science and Engineering","Idaho","4506 Meadow Lane",930053
+27BMT0019,"Nellie Boyer","Mr. Joaquin Braun",7715840659,8192461533,GEN,B+,"Material Science and Engineering","Iowa","523 13th Street",952720
+27BCH0020,"Curtis Stoltenberg","Geoffrey Dare PhD",8658221506,9590616727,SC,O+,"Chemical Engineering","Virginia","9035 Justyn Knoll",712842
+27BPH0021,"Kellen Nicolas","Lonny Johnston",9459894922,9485107115,OBC,AB-,"Engineering Physics","Wisconsin","1061 S College Street",739859
+27BME0022,"Edna Hauck","Mr. Rick Lockman",8698581289,8523617907,OBC,A+,"Mechanical Engineering","New Jersey","48266 Fourth Avenue",216767
+27BCE0023,"Orin Crona","Noah Bernier",9640068390,6663465977,ST,AB-,"Civil Engineering","Missouri","4247 Stehr Locks",291261
+27BCE0024,"Andrew Champlin","Audra Grant",8975711163,9266261640,OBC,AB-,"Civil Engineering","Arkansas","49395 Park Lane",068296
+27BMT0025,"Ruth Waelchi","Dion Carter Sr.",6201247588,9466559535,ST,A+,"Material Science and Engineering","Virginia","210 Lucia Ville",993013
+27BEC0026,"Sylvia Ullrich","Chester Vandervort",9491716518,9835667329,SC,B+,"Electronics and Communication Engineering","North Carolina","516 Hillside",313360
+27BME0027,"Maria Rohan PhD","Manley Thiel I",6528357028,8745224233,OBC,O-,"Mechanical Engineering","Maine","44166 Anibal Lights",635385
+27BME0028,"Sophie Ullrich","Ramiro Konopelski",6585290332,9630215556,EWS,B+,"Mechanical Engineering","Texas","392 Spencer Pike",194049
+27BCS0029,"Rhonda Reynolds","Carl Steuber",8731281977,7319464135,ST,O+,"Computer Science and Engineering","New Hampshire","83052 Macejkovic Turnpike",670850
+27BEE0030,"Travis Ratke","Niko Howell",9723936804,9524455712,OBC,AB-,"Electrical Engineering","Rhode Island","1692 Ward Well",812808
+27BCE0031,"Nannie Daugherty","Cary Stark",9429801642,7993901740,ST,A+,"Civil Engineering","Missouri","1582 Stracke Ville",811679
+27BCS0032,"Juana Skiles IV","Alejandro Windler Sr.",9874795699,8531711638,ST,A-,"Computer Science and Engineering","Delaware","14413 Wolf Vista",951084
+27BMT0033,"Clinton Ferry","Juan Runolfsson",8034177953,6696473132,SC,A-,"Material Science and Engineering","North Carolina","476 E Pine Street",306260
+27BCH0034,"Andres Wuckert","Vincent Schuppe",8020393374,8133917215,SC,O-,"Chemical Engineering","Maryland","95683 Amparo Tunnel",421560
+27BPH0035,"Walker Renner-Goodwin","Justin Gulgowski",8262693936,6379634638,OBC,B+,"Engineering Physics","Oregon","725 Hermiston Circle",153790
+27BEC0036,"Vicki Krajcik","Ismael Rau",8458329148,6363610939,ST,AB+,"Electronics and Communication Engineering","Wisconsin","31217 Hermann Village",014308
+27BEE0037,"Shyann Hartmann","Randal McGlynn",9893355379,6628241804,ST,O-,"Electrical Engineering","Florida","14466 Macejkovic Curve",824401
+27BEC0038,"Roberto Stamm","Flo Cruickshank",8417347382,8227036192,OBC,O-,"Electronics and Communication Engineering","New Hampshire","488 Block Canyon",978718
+27BEE0039,"Spencer Carroll-Berge","Fernando Wisoky",7985271428,9867920541,OBC,O-,"Electrical Engineering","Minnesota","35579 Pfeffer Groves",477915
+27BEC0040,"Kenneth Spinka","Jettie Friesen III",9168897374,9841634495,GEN,O-,"Electronics and Communication Engineering","Virginia","7065 Blanda Stream",441145
+27BCS0041,"Aimee Stanton","Eriberto Bogan-Sauer III",6362541303,6696503804,SC,AB-,"Computer Science and Engineering","Montana","99344 E Park Avenue",125786
+27BCS0042,"Herminio Rolfson","Mr. Sincere Rutherford",8660801095,6804888106,OBC,B-,"Computer Science and Engineering","Georgia","2470 S Pine Street",691091
+27BCS0043,"Margie Wilderman","Fern Stamm-Cole",9731336923,6496761246,SC,B+,"Computer Science and Engineering","Missouri","2801 Clarence Road",439815
+27BEE0044,"Amber Turner","Todd Senger",8814347904,7272867211,OBC,O+,"Electrical Engineering","Kansas","7268 Broad Lane",189162
+27BPH0045,"Orville Johns MD","Julian Gusikowski",7473618348,6062978848,SC,O+,"Engineering Physics","Massachusetts","3476 N 8th Street",080373
+27BCS0046,"Athena Rolfson","Elmer Schumm",6356797312,6767794337,SC,AB-,"Computer Science and Engineering","Maryland","13750 Gabriel Meadows",600610
+27BEC0047,"Tyrese Willms","Lelia Veum",9938796190,6150364656,GEN,AB-,"Electronics and Communication Engineering","Maine","648 Terry Road",257008
+27BME0048,"Leda Morissette","Efren Wuckert",9736066649,7977272254,OBC,B+,"Mechanical Engineering","Missouri","37066 Hartmann Mount",649177
+27BCE0049,"Kiera Murray","Jason O'Reilly",7197101099,8306358933,GEN,AB+,"Civil Engineering","Massachusetts","1221 Lilly Extensions",352105
+27BCS0050,"Jesse Jones","Maya Murphy",9898922138,8362836281,SC,A+,"Computer Science and Engineering","Mississippi","7799 Franklin Avenue",643338
+27BMT0051,"Kennedy Franecki","Joseph McLaughlin",8811209433,9422597083,ST,B+,"Material Science and Engineering","New York","69803 Leora Brook",289565
+27BCS0052,"Mr. Ronnie Koss","Fatima Rutherford",6198454250,8406468420,SC,AB+,"Computer Science and Engineering","Wisconsin","3212 Hauck Track",827347
+27BEE0053,"Tamara Mueller PhD","Freeda O'Hara",9370065578,6310125604,GEN,O-,"Electrical Engineering","Alaska","3272 Clint Landing",777747
+27BCS0054,"Lucy Bartoletti","Joannie Walker",6444323423,6881184028,OBC,A-,"Computer Science and Engineering","Vermont","82547 O'Keefe Camp",767831
+27BCS0055,"Karley Gibson","Crystel Casper",8695680555,7151878888,SC,AB+,"Computer Science and Engineering","New York","7595 Andy Mountains",895506
+27BEC0056,"Gregg Grant-Homenick","John Macejkovic",6214793587,8359966460,SC,B+,"Electronics and Communication Engineering","North Carolina","39585 E State Street",523025
+27BCH0057,"Jameson Cassin","Dion Cummings",9522809851,9620390337,GEN,O-,"Chemical Engineering","Wisconsin","373 Kreiger Turnpike",593499
+27BEE0058,"Ruby Schmidt","Kaley Dare",8991281976,9337244014,EWS,O-,"Electrical Engineering","Maine","977 Davis Valley",083196
+27BME0059,"Bret Ortiz","Dane Baumbach",7022871462,7007447062,ST,O+,"Mechanical Engineering","Maryland","966 S 1st Avenue",275408
+27BEC0060,"Tricia Christiansen","Odie Veum-Satterfield",7257644983,7494496756,OBC,O-,"Electronics and Communication Engineering","Virginia","76159 Reynolds Fall",917439
+27BCS0061,"Steven Schmidt","Annabelle Reichel",7354827520,7980380165,OBC,O+,"Computer Science and Engineering","Arizona","851 Washington Boulevard",576191
+27BCE0062,"Mr. Zackery Ryan","Zaria Kuhic",9068675412,6157659521,GEN,A+,"Civil Engineering","Oklahoma","8769 Prospect Avenue",602677
+27BCH0063,"Kristina Glover","Chris Bode PhD",9025540374,9760418804,GEN,A+,"Chemical Engineering","North Dakota","128 Richmond Close",400391
+27BMT0064,"Norberto Strosin","Bobby Stehr",7621918681,8546739638,OBC,B-,"Material Science and Engineering","New Hampshire","5057 Louie Track",274316
+27BEE0065,"Zachariah Bernier","Therese Lubowitz",6074751800,9053133909,EWS,A+,"Electrical Engineering","Rhode Island","42074 Kassulke Rapid",118082
+27BEE0066,"Mr. Yessenia Spinka","Carissa Hauck",6926129228,7571867807,GEN,A-,"Electrical Engineering","Massachusetts","6315 North Lane",431451
+27BMT0067,"Laurie Russel","Meagan Koelpin",8084723653,8568157583,SC,O+,"Material Science and Engineering","Vermont","785 Norberto Terrace",485320
+27BME0068,"Regina Russel","Electa Bergstrom",7895535352,7895285712,ST,O+,"Mechanical Engineering","Arizona","70068 Maegan Cliff",607447
+27BME0069,"Oliver Koch","Chad Reichert",7721753597,9850632148,EWS,O-,"Mechanical Engineering","California","753 Teresa Lane",937933
+27BCE0070,"Ashley Champlin II","Mr. Marc Towne",6421456065,7528226454,ST,AB-,"Civil Engineering","Washington","660 Eino Mountains",066214
+27BCS0071,"Ernesto VonRueden III","Audreanne Spinka",6388841868,8114734155,ST,A-,"Computer Science and Engineering","North Carolina","55626 New Lane",083956
+27BME0072,"Efren Tremblay","Terrence Rath",7550285117,9639354101,SC,A-,"Mechanical Engineering","Louisiana","36101 Oakfield Road",839358
+27BCE0073,"Ms. Marina Hilpert","Santos Bogan",6675472777,7602630824,SC,O-,"Civil Engineering","Maine","4320 Chestnut Grove",491086
+27BPH0074,"Alexandra Toy III","Jack Hodkiewicz-Okuneva",8112384513,7078379911,EWS,AB-,"Engineering Physics","Maryland","6905 Carli Garden",113179
+27BCE0075,"Mr. Kelvin Langworth","Krystel Stracke",6876834299,9439815526,GEN,B+,"Civil Engineering","Alabama","68504 Sandra Run",083157
+27BCH0076,"Marley Deckow","Emery Yost",9067681756,7268394952,SC,AB+,"Chemical Engineering","Tennessee","6475 Funk Orchard",348920
+27BCE0077,"Emmanuel Stamm","Mozelle White",6737260140,8877554324,ST,B+,"Civil Engineering","Oklahoma","8550 N Lincoln Street",089607
+27BCS0078,"Faith Reinger","Mathew Welch",8925600797,8597885879,SC,A+,"Computer Science and Engineering","Nevada","851 Nadine Crossing",741914
+27BMT0079,"Mrs. Monica Windler","Darren Nicolas",9823177414,7487296493,SC,A-,"Material Science and Engineering","Oregon","185 Springfield Close",789085
+27BMT0080,"Gunner Hoppe Jr.","Lilyan Johnson",8513473320,7386300109,EWS,AB+,"Material Science and Engineering","Wyoming","634 County Road",387041
+27BCH0081,"Mrs. Florence Littel MD","Marcus Jenkins",9969770849,7509022971,SC,AB-,"Chemical Engineering","California","18075 Collier Squares",106791
+27BMT0082,"Diego Torp","Franklin Quigley",8246887227,6657780502,GEN,B-,"Material Science and Engineering","New Mexico","414 Keeling Mall",219805
+27BPH0083,"Lizzie Weimann","Mr. Emilio Wisozk",6749781542,7491033370,SC,A+,"Engineering Physics","Hawaii","77101 W 11th Street",975968
+27BEC0084,"Christian Gleason","Alfonso Fadel",7284651886,6410231705,EWS,AB-,"Electronics and Communication Engineering","Alaska","7797 Legros Terrace",473050
+27BMT0085,"Wilfred Hickle Jr.","Glennie Turner",8701739085,6243043733,ST,AB-,"Material Science and Engineering","Wisconsin","7489 Gusikowski Spurs",978964
+27BMT0086,"Donato Lueilwitz","Brad Hoeger-Fadel Sr.",9561313672,6765416379,ST,A+,"Material Science and Engineering","Virginia","5861 Kirlin Spur",234597
+27BCE0087,"Miss Nolan Mann","Cleora Mertz",6694345186,7291065219,OBC,B+,"Civil Engineering","California","230 York Road",504044
+27BCH0088,"Glenn Hirthe","Cyril Gorczany",9562331617,7651254758,GEN,A+,"Chemical Engineering","West Virginia","7145 Emilio Park",753222
+27BCE0089,"Tamara Skiles","Calvin Blanda",8448258989,8107440231,EWS,O-,"Civil Engineering","Indiana","65183 Asa Cliff",557473
+27BCH0090,"Ms. Ora Veum","Calvin Daugherty",8691313913,8677221439,GEN,AB+,"Chemical Engineering","West Virginia","975 6th Avenue",082852
+27BCE0091,"Ronald Bogisich","Alan Hintz",6817563339,7495273939,EWS,A+,"Civil Engineering","Indiana","222 Chestnut Street",963415
+27BMT0092,"Joann Zieme-Fay","Darrin Olson",8379861911,7188533746,ST,O+,"Material Science and Engineering","Mississippi","1118 Spring Gardens",035094
+27BME0093,"Garry Prosacco","Russell Erdman",9997198831,6997960584,EWS,B-,"Mechanical Engineering","Oklahoma","768 Kari Estate",561632
+27BME0094,"Kathleen King","Scott Sanford",6250268475,6937887244,OBC,B+,"Mechanical Engineering","Rhode Island","589 Iris Motorway",066042
+27BME0095,"Naomi Johnson","Cary Muller",9626785651,7057214535,GEN,B-,"Mechanical Engineering","Vermont","657 Boehm Union",984062
+27BMT0096,"Lorena Franey I","Sanford Keeling",8169432775,7666985594,GEN,B+,"Material Science and Engineering","Virginia","822 Turcotte Spur",661870
+27BEE0097,"Myles Gerlach","Eric Green",9108260330,8653722021,OBC,B-,"Electrical Engineering","South Dakota","7162 Chestnut Close",113955
+27BEC0098,"Zoie Rempel","Eli Smith",6041746029,9783597110,EWS,A-,"Electronics and Communication Engineering","Illinois","9225 Herman Track",058971
+27BCS0099,"Ethan Nikolaus","Bradford Hoppe",9799160757,8353922837,OBC,B+,"Computer Science and Engineering","Utah","3031 N Market Street",791603
+27BMT0100,"Ms. Janis Kovacek","Mike Thompson",7352129156,7895739946,ST,O+,"Material Science and Engineering","New Jersey","38056 Purdy Keys",700086
+27BEC0101,"Jeromy King","Kenneth Cremin",6320680602,7744007526,GEN,O-,"Electronics and Communication Engineering","South Dakota","51588 Reichel Brooks",590958
+27BMT0102,"William Goldner","Mr. Clare Lakin",9097911340,9765088575,GEN,AB-,"Material Science and Engineering","Oregon","484 Mireya Village",243385
+27BMT0103,"Zola Windler","Leroy Langosh",6167379549,6467804706,ST,O+,"Material Science and Engineering","Louisiana","88170 Main Street",682343
+27BME0104,"Dr. Leon Casper","Leonie Lockman",9579474118,8334770390,GEN,O-,"Mechanical Engineering","Montana","23254 Altenwerth Wall",687585
+27BMT0105,"Mrs. Karlee Bartell","Corene Vandervort",9253143132,8864463896,OBC,AB+,"Material Science and Engineering","Illinois","2328 Carolina Key",953952
+27BMT0106,"Roselyn Parisian","Dr. Adam Deckow",8121615471,6692501214,ST,B-,"Material Science and Engineering","North Carolina","500 Blair Mountains",151917
+27BPH0107,"Gerardo Toy","Arthur Christiansen",8727754477,7347455473,GEN,AB+,"Engineering Physics","South Carolina","867 Reed Throughway",926967
+27BCH0108,"Roselyn Hartmann","August Romaguera",8560442522,8906152330,ST,B+,"Chemical Engineering","Utah","6075 S Oak Street",422795
+27BCS0109,"Mable Jacobs","Bruce Emmerich",8740464910,6540192580,EWS,AB-,"Computer Science and Engineering","Indiana","709 E South Street",369713
+27BCE0110,"Phil Hermiston","Garrett Senger",6782982357,9556076771,ST,B-,"Civil Engineering","Delaware","302 Hester Landing",983157
+27BCH0111,"Brendan Pagac","Seth Stehr-Beier",7425981309,9205270420,SC,B-,"Chemical Engineering","Georgia","1989 W 3rd Street",630389
+27BCH0112,"Billy Lehner","Aisha Grady-Kris",6185058981,7430097678,ST,A-,"Chemical Engineering","Illinois","583 Lawrence Street",843382
+27BME0113,"Isabell Batz","Davion Willms",9984682799,7029568471,GEN,A+,"Mechanical Engineering","New York","750 King's Road",255676
+27BCE0114,"Rebecca O'Keefe III","Mckenna Tillman",8189840310,6123595330,EWS,B-,"Civil Engineering","Florida","367 D'Amore Ramp",287498
+27BEE0115,"Karlee Hammes","Bryan Waters",7501582600,7614840888,ST,AB+,"Electrical Engineering","Oregon","2728 Kris Field",013760
+27BEC0116,"Derek Feest","Mr. Peter Haley",7628462725,7783764482,SC,A-,"Electronics and Communication Engineering","Illinois","390 Baumbach Loaf",949534
+27BPH0117,"Gerard Connelly","Dereck Funk",6720128148,9674469094,EWS,A+,"Engineering Physics","Maine","78104 Laurel Creek",324225
+27BCH0118,"Betsy Blanda","Jakayla Dare",9995916258,6967259601,ST,O+,"Chemical Engineering","Texas","604 N Main",868689
+27BMT0119,"Frederik Braun","Enrique Schaefer",6862338020,6973248596,GEN,B+,"Material Science and Engineering","Maryland","532 Domenico Trafficway",856778
+27BCS0120,"Myron Roberts","Philip Larkin",7650298851,9804052680,SC,O-,"Computer Science and Engineering","Pennsylvania","4708 Moor Lane",910792

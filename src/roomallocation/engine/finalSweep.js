@@ -37,31 +37,28 @@ import pool from '../../db/pool.js';
  * @returns {Promise<{ assigned: number, skipped: number, unplaced: number }>}
  */
 export async function execute(hostelId) {
-    // 1. Fetch all unallocated students associated with this hostel
-    // (students whose allocated_room_id is null and is_allotted = false)
+    // 1. Fetch all unallocated students from THIS source hostel
+    //    (students whose is_allotted = false and whose hostel_id = hostelId)
     const studentsRes = await pool.query(
         `SELECT s.id, s.name, s.roll_no, s.individual_rank
          FROM student s
          WHERE s.is_allotted = false
-           AND EXISTS (
-               SELECT 1 FROM housing_group hg
-               JOIN batch b ON hg.batch_id = b.id
-               WHERE hg.id = s.group_id
-                 AND b.hostel_id = $1
-           )
+           AND s.hostel_id = $1
          ORDER BY s.individual_rank ASC NULLS LAST, s.id ASC`,
         [hostelId]
     );
 
-    // Also include students with no group who were part of this hostel
-    // (shattered / penalized members)
+    // Also include shattered / penalized orphan students from this hostel
+    // (group_id IS NULL but still attached to this hostel)
     const orphanRes = await pool.query(
         `SELECT s.id, s.name, s.roll_no, s.individual_rank
          FROM student s
          WHERE s.is_allotted = false
            AND s.group_id IS NULL
            AND s.physical_room_id IS NULL
-         ORDER BY s.individual_rank ASC NULLS LAST, s.id ASC`
+           AND s.hostel_id = $1
+         ORDER BY s.individual_rank ASC NULLS LAST, s.id ASC`,
+        [hostelId]
     );
 
     // Merge, deduplicate by id
@@ -71,12 +68,19 @@ export async function execute(hostelId) {
         return { assigned: 0, skipped: 0, unplaced: 0 };
     }
 
+    // Check if a room pool is configured for this hostel
+    const poolCountRes = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM allocation_room_pool WHERE source_hostel_id = $1`,
+        [hostelId]
+    );
+    const hasPool = parseInt(poolCountRes.rows[0].cnt, 10) > 0;
+
     let assigned = 0;
     let skipped = 0;
     let unplaced = 0;
 
     for (const student of allStudents) {
-        const outcome = await _assignStudentToRoom(student, hostelId);
+        const outcome = await _assignStudentToRoom(student, hostelId, hasPool);
 
         if (outcome === 'ASSIGNED') assigned++;
         else if (outcome === 'SKIPPED') skipped++;
@@ -96,7 +100,7 @@ export async function execute(hostelId) {
  *
  * @returns {'ASSIGNED'|'SKIPPED'|'UNPLACED'}
  */
-async function _assignStudentToRoom(student, hostelId) {
+async function _assignStudentToRoom(student, hostelId, hasPool) {
     // Idempotency: re-check if already assigned
     const freshCheck = await pool.query(
         `SELECT is_allotted FROM student WHERE id = $1`,
@@ -106,15 +110,31 @@ async function _assignStudentToRoom(student, hostelId) {
         return 'SKIPPED';
     }
 
-    // Fetch available rooms, sorted tightest-first to minimise waste
-    const roomsRes = await pool.query(
-        `SELECT id, max_capacity, current_occupancy
-         FROM room
-         WHERE hostel_id = $1
-           AND current_occupancy < max_capacity
-         ORDER BY (max_capacity - current_occupancy) ASC, id ASC`,
-        [hostelId]
-    );
+    // Fetch available rooms from the pool (includes half-filled rooms).
+    // Sort tightest-first (fewest remaining beds) to minimise waste.
+    let roomsRes;
+    if (hasPool) {
+        // Pool-aware: only rooms in the configured allocation pool
+        roomsRes = await pool.query(
+            `SELECT r.id, r.max_capacity, r.current_occupancy
+             FROM room r
+             JOIN allocation_room_pool arp ON arp.room_id = r.id
+             WHERE arp.source_hostel_id = $1
+               AND r.current_occupancy < r.max_capacity
+             ORDER BY (r.max_capacity - r.current_occupancy) ASC, r.id ASC`,
+            [hostelId]
+        );
+    } else {
+        // Legacy fallback: all available rooms in the target hostel
+        roomsRes = await pool.query(
+            `SELECT id, max_capacity, current_occupancy
+             FROM room
+             WHERE hostel_id = $1
+               AND current_occupancy < max_capacity
+             ORDER BY (max_capacity - current_occupancy) ASC, id ASC`,
+            [hostelId]
+        );
+    }
 
     if (roomsRes.rowCount === 0) {
         await logFinalSweepSkipped({ hostelId, studentId: student.id, reason: 'No available rooms' });

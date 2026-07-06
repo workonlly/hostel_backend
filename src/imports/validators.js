@@ -30,7 +30,6 @@ export const validateRows = async (rows, pool) => {
 
         // 1. Required fields
         if (!row.name || row.name.trim() === '') errors.push("Missing required field: name");
-        if (!row.email || row.email.trim() === '') errors.push("Missing required field: email");
         if (!row.hostel_id || String(row.hostel_id).trim() === '') errors.push("Missing required field: hostel_id");
         if (!row.department || row.department.trim() === '') errors.push("Missing required field: department");
 

@@ -24,6 +24,7 @@
 import pool from '../../db/pool.js';
 import ApiError from '../../utils/apiError.js';
 import { BATCH_SIZE, BATCH_DURATION_MS, TEST_MODE } from '../constants/testConfig.js';
+import { logBatchAssignment } from '../engine/allocationLogger.js';
 
 /**
  * Assign all FORMING groups for a hostel to PENDING batches,
@@ -119,6 +120,9 @@ export async function assignGroupsToBatches(hostelId) {
         }
 
         await client.query('COMMIT');
+
+        // Audit log — batch assignment by rank
+        await logBatchAssignment({ hostelId, assigned, unassigned, batches: batchesUsed });
 
         console.log(
             `[softLock] Soft-locked ${assigned} groups into ${batchesUsed} batches ` +
