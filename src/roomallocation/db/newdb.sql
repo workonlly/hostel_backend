@@ -73,17 +73,6 @@ CREATE TYPE room_type_enum AS ENUM (
 -- =========================================================
 -- 2. CORE INFRASTRUCTURE
 -- =========================================================
-
-CREATE TABLE admin (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    authority_level INTEGER NOT NULL CHECK (authority_level IN (1,2,3)),
-    hostel VARCHAR(255) REFERENCES hostel(name),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE hostel (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) UNIQUE NOT NULL,
@@ -98,6 +87,16 @@ CREATE TABLE hostel (
     target_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
     -- source_hostel_id: reverse link — students from this hostel are being allocated into THIS hostel
     source_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE admin (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    authority_level INTEGER NOT NULL CHECK (authority_level IN (1,2,3)),
+    hostel VARCHAR(255) REFERENCES hostel(name),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

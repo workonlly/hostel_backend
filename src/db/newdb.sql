@@ -73,16 +73,6 @@ CREATE TYPE room_type_enum AS ENUM (
 -- =========================================================
 -- 2. CORE INFRASTRUCTURE
 -- =========================================================
-
-CREATE TABLE admin (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    authority_level INTEGER NOT NULL CHECK (authority_level IN (1,2,3)),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE hostel (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) UNIQUE NOT NULL,
@@ -90,6 +80,23 @@ CREATE TABLE hostel (
     total_capacity INT DEFAULT 0,
     current_phase system_phase_enum DEFAULT 'ADMIN_MODE',
     is_paused BOOLEAN DEFAULT FALSE,
+    allocation_date TIMESTAMP WITH TIME ZONE,
+    lobby_opens_at TIMESTAMP WITH TIME ZONE,
+    -- From/To hostel mapping for cross-hostel allocation:
+    -- target_hostel_id: rooms from this hostel will be shown/allocated to students of THIS hostel
+    target_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
+    -- source_hostel_id: reverse link — students from this hostel are being allocated into THIS hostel
+    source_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE admin (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    authority_level INTEGER NOT NULL CHECK (authority_level IN (1,2,3)),
+    hostel VARCHAR(255) REFERENCES hostel(name),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -124,7 +131,7 @@ CREATE TABLE student (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     father_name VARCHAR(255),
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
     password VARCHAR(255),
     hostel VARCHAR(255) NOT NULL,
     hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
@@ -211,6 +218,26 @@ CREATE TABLE room_assignment (
     assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
 );
+
+-- ─── Allocation Room Pool ─────────────────────────────────────────────────────
+-- Replaces the single target_hostel_id FK on the hostel table with a
+-- granular, room-level pool that can span multiple TO hostels.
+--
+-- Design:
+--   • source_hostel_id — the FROM hostel (whose students participate)
+--   • room_id          — one room included in that hostel's pool
+--   • Multiple FROM hostels may reference rooms from the same TO hostel
+--     as long as they don't share the exact same rooms for the same cycle.
+--   • target_hostel_id on hostel is KEPT for display / backward compat
+--     but is no longer the engine's source of truth.
+CREATE TABLE allocation_room_pool (
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    source_hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
+    room_id          UUID NOT NULL REFERENCES room(id)   ON DELETE CASCADE,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_hostel_id, room_id)
+);
+
 
 
 -- =========================================================
@@ -303,6 +330,10 @@ CREATE INDEX idx_student_individual_rank ON student(individual_rank);
 CREATE INDEX idx_housing_group_batch_id ON housing_group(batch_id);
 CREATE INDEX idx_housing_group_group_rank ON housing_group(group_rank);
 CREATE INDEX idx_room_occupancy ON room(max_capacity, current_occupancy);
+
+-- Allocation Room Pool
+CREATE INDEX idx_arp_source ON allocation_room_pool(source_hostel_id);
+CREATE INDEX idx_arp_room   ON allocation_room_pool(room_id);
 
 CREATE UNIQUE INDEX idx_unique_active_assignment ON room_assignment(student_id) WHERE assignment_status = 'ACTIVE';
 CREATE UNIQUE INDEX idx_unique_upcoming_assignment ON room_assignment(student_id) WHERE assignment_status = 'UPCOMING';
