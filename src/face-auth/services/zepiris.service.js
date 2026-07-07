@@ -2,6 +2,54 @@ const BASE_URL = process.env.ZEPIRIS_BASE_URL;
 const TENANT = process.env.ZEPIRIS_TENANT;
 
 class ZepirisService {
+    async request(endpoint, options = {}) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        try {
+            const response = await fetch(`${BASE_URL}${endpoint}`, {
+                ...options,
+                signal: controller.signal,
+            });
+
+            let data = {};
+
+            try {
+                data = await response.json();
+            } catch (_) {
+                data = {};
+            }
+
+            if (!response.ok) {
+                const error = new Error("ZepIris request failed");
+
+                error.response = {
+                    status: response.status,
+                    data,
+                };
+
+                throw error;
+            }
+
+            return data;
+        } catch (error) {
+            // fetch failed / timeout / connection refused
+            if (!error.response) {
+                error.response = {
+                    status: 503,
+                    data: {
+                        message:
+                            "Face authentication service is currently unavailable.",
+                    },
+                };
+            }
+
+            throw error;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
     async enrollFace({ faceId, file }) {
         const formData = new FormData();
 
@@ -10,22 +58,36 @@ class ZepirisService {
 
         formData.append(
             "file",
-            new Blob([file.buffer], { type: file.mimetype }),
+            new Blob([file.buffer], {
+                type: file.mimetype,
+            }),
             file.originalname
         );
 
-        const response = await fetch(`${BASE_URL}/v1/faces/insert`, {
+        return this.request("/v1/faces/insert", {
             method: "POST",
             body: formData,
         });
+    }
 
-        const data = await response.json();
+    async upsertFace({ faceId, file }) {
+        const formData = new FormData();
 
-        if (!response.ok) {
-            throw new Error(data.message || "Failed to enroll face");
-        }
+        formData.append("id", faceId);
+        formData.append("tenant", TENANT);
 
-        return data;
+        formData.append(
+            "file",
+            new Blob([file.buffer], {
+                type: file.mimetype,
+            }),
+            file.originalname
+        );
+
+        return this.request("/v1/faces/upsert", {
+            method: "POST",
+            body: formData,
+        });
     }
 
     async searchFace({ file, topK = 5 }) {
@@ -36,51 +98,34 @@ class ZepirisService {
 
         formData.append(
             "file",
-            new Blob([file.buffer], { type: file.mimetype }),
+            new Blob([file.buffer], {
+                type: file.mimetype,
+            }),
             file.originalname
         );
 
-        const response = await fetch(
-            `${BASE_URL}/v1/faces/search?top_k=${topK}`,
-            {
-                method: "POST",
-                body: formData,
-            }
-        );
+        return this.request(`/v1/faces/search?top_k=${topK}`, {
+            method: "POST",
+            body: formData,
+        });
+    }
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message || "Face search failed");
-        }
-
-        return data;
+    async getFace(faceId) {
+        return this.request(`/v1/faces/get/${faceId}`);
     }
 
     async deleteFace(faceId) {
-        const response = await fetch(
-            `${BASE_URL}/v1/faces/delete?id=${faceId}`,
-            {
-                method: "DELETE",
-            }
-        );
-
-        if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.message || "Failed to delete face");
-        }
-
-        return true;
+        return this.request(`/v1/faces/delete?id=${faceId}`, {
+            method: "DELETE",
+        });
     }
 
     async healthCheck() {
-        const response = await fetch(`${BASE_URL}/healthz`);
+        return this.request("/healthz");
+    }
 
-        if (!response.ok) {
-            throw new Error("ZepIris service unavailable");
-        }
-
-        return response.json();
+    async readyCheck() {
+        return this.request("/readyz");
     }
 }
 

@@ -1,20 +1,12 @@
-// src/face-auth/controllers/face.controller.js
-
 import asyncHandler from "../../utils/asyncHandler.js";
-import ApiResponse from "../../utils/ApiResponse.js";
 import ApiError from "../../utils/ApiError.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
 import faceService from "../services/face.service.js";
 
 export const enrollFace = asyncHandler(async (req, res) => {
-    const { studentId } = req.params;
-
-    if (!req.files || req.files.length === 0) {
-        throw new ApiError(400, "Please upload at least one image.");
-    }
-
     const result = await faceService.enrollStudentFaces(
-        studentId,
+        req.params.studentId,
         req.files
     );
 
@@ -28,11 +20,7 @@ export const enrollFace = asyncHandler(async (req, res) => {
 });
 
 export const verifyFace = asyncHandler(async (req, res) => {
-    if (!req.file) {
-        throw new ApiError(400, "Face image is required.");
-    }
-
-    const result = await faceService.searchStudentByFace(req.file);
+    const result = await faceService.verifyStudentFace(req.file);
 
     return res.status(200).json(
         new ApiResponse(
@@ -44,31 +32,27 @@ export const verifyFace = asyncHandler(async (req, res) => {
 });
 
 export const deleteFace = asyncHandler(async (req, res) => {
-    const { faceId } = req.params;
-
-    if (!faceId) {
-        throw new ApiError(400, "Face ID is required.");
-    }
-
-    await faceService.deleteStudentFace(faceId);
+    const result = await faceService.deleteStudentFace(
+        req.params.faceId
+    );
 
     return res.status(200).json(
         new ApiResponse(
             200,
-            null,
+            result,
             "Face deleted successfully."
         )
     );
 });
 
 export const healthCheck = asyncHandler(async (req, res) => {
+    const result = await faceService.healthCheck();
+
     return res.status(200).json(
         new ApiResponse(
             200,
-            {
-                status: "healthy",
-            },
-            "Face authentication service is running."
+            result,
+            "Face authentication service is healthy."
         )
     );
 });

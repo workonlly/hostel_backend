@@ -1,62 +1,105 @@
 import { Router } from "express";
 
 import auth from "../../middleware/middleware.js";
+import authorizeRoles from "../../middleware/authorizeRoles.js";
 
 import upload from "../middleware/upload.middleware.js";
 
 import {
     enrollFace,
+    reEnrollFace,
     verifyFace,
-    deleteFace,
+    deleteMyFace,
     healthCheck,
+    readyCheck,
 } from "../controllers/face.controller.js";
 
 const router = Router();
 
 /*
 |--------------------------------------------------------------------------
-| Health
+| Health & Readiness
+|--------------------------------------------------------------------------
+| Health  -> Checks if Face Authentication module is reachable
+| Ready   -> Checks if ZepIris is ready to serve requests
 |--------------------------------------------------------------------------
 */
 
-router.get("/health", healthCheck);
+router.get(
+    "/health",
+    auth,
+    authorizeRoles("ADMIN", "GUARD"),
+    healthCheck
+);
+
+router.get(
+    "/ready",
+    auth,
+    authorizeRoles("ADMIN", "GUARD"),
+    readyCheck
+);
 
 /*
 |--------------------------------------------------------------------------
-| Face Enrollment
+| Student Face Enrollment
+|--------------------------------------------------------------------------
+| Student uploads 1-5 face images.
 |--------------------------------------------------------------------------
 */
 
 router.post(
-    "/enroll/:studentId",
+    "/enroll",
     auth,
+    authorizeRoles("STUDENT"),
     upload.array("photos", 5),
     enrollFace
 );
 
 /*
 |--------------------------------------------------------------------------
-| Face Verification (Gate Scan)
+| Student Face Re-enrollment
+|--------------------------------------------------------------------------
+| Deletes previous enrollment and uploads new face images.
+|--------------------------------------------------------------------------
+*/
+
+router.put(
+    "/re-enroll",
+    auth,
+    authorizeRoles("STUDENT"),
+    upload.array("photos", 5),
+    reEnrollFace
+);
+
+/*
+|--------------------------------------------------------------------------
+| Student Delete Face Enrollment
+|--------------------------------------------------------------------------
+| Removes all enrolled faces of the authenticated student.
+|--------------------------------------------------------------------------
+*/
+
+router.delete(
+    "/me",
+    auth,
+    authorizeRoles("STUDENT"),
+    deleteMyFace
+);
+
+/*
+|--------------------------------------------------------------------------
+| Guard Face Verification
+|--------------------------------------------------------------------------
+| Guard captures a student's face and verifies identity.
 |--------------------------------------------------------------------------
 */
 
 router.post(
     "/verify",
     auth,
+    authorizeRoles("GUARD"),
     upload.single("capture"),
     verifyFace
-);
-
-/*
-|--------------------------------------------------------------------------
-| Delete Face
-|--------------------------------------------------------------------------
-*/
-
-router.delete(
-    "/:faceId",
-    auth,
-    deleteFace
 );
 
 export default router;
