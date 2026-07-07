@@ -4,9 +4,10 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Properly resolves the .env file located at hostel_backend/.env
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-// The dataset with block allocations based on your constraints
+// The dataset with block allocations and FIXED room types matching room_type_enum
 const hostelsData = [
     {
         name: 'Kailash Boys Hostel', type: 'Boys', total_capacity: 612,
@@ -78,6 +79,7 @@ const hostelsData = [
             { block: 'A', prefix: 'P-S', start: 1, end: 54, capacity: 1, roomType: 'Student' },
             { block: 'B', prefix: 'P-T', start: 1, end: 36, capacity: 3, roomType: 'Student' },
             { block: 'Admin', prefix: 'P-G', start: 1, end: 2, capacity: 2, roomType: 'Guest' },
+            // FIXED: Changed from 'Visitor' to 'Guest' to satisfy room_type_enum constraint
             { block: 'Admin', prefix: 'P-VIS', start: 1, end: 1, capacity: 4, roomType: 'Guest' }
         ]
     },
@@ -110,7 +112,6 @@ async function seedHostels() {
     console.log('🔗 Connected to database. Starting hostel and room population...');
 
     try {
-        // Wrapped completely in one transaction
         await client.query('BEGIN');
 
         for (const hostel of hostelsData) {
@@ -133,7 +134,6 @@ async function seedHostels() {
             let paramIndex = 1;
             const insertParams = [];
 
-            // Generate multi-parameter batch values dynamically
             hostel.rooms.forEach(config => {
                 for (let i = config.start; i <= config.end; i++) {
                     const roomNumber = `${config.prefix}-${i}`;
@@ -145,7 +145,6 @@ async function seedHostels() {
                 }
             });
 
-            // Perform a high-speed bulk insert per hostel
             if (roomValues.length > 0) {
                 const roomInsertQuery = `
                     INSERT INTO room (hostel_id, block, room_number, max_capacity, room_type) 
@@ -164,6 +163,7 @@ async function seedHostels() {
     } finally {
         client.release();
         await pool.end();
+        process.exit(0);
     }
 }
 

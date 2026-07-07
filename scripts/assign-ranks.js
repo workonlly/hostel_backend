@@ -4,21 +4,22 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
+// FIXED: Points accurately to hostel_backend/.env
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 import { faker } from '@faker-js/faker';
 
 const CHUNK_SIZE = 500;
 const MAX_LOOPS = 6;
 
 async function assignRanks() {
-    const { default: pool } = await import('./src/db/pool.js');
+    const { default: pool } = await import('../src/db/pool.js');
     const client = await pool.connect();
     
     try {
         console.log('🔗 Connected to database.');
 
-        // 1. Fetch all students
-        const { rows: students } = await client.query('SELECT id, joining_year FROM student LIMIT 3000');
+        // FIXED: Removed LIMIT 3000 to fetch ALL students
+        const { rows: students } = await client.query('SELECT id, joining_year FROM student');
         
         if (students.length === 0) {
             console.log('No students found.');
@@ -66,8 +67,6 @@ async function assignRanks() {
 
         console.log(`Prepared ${chunks.length} chunks of size ${CHUNK_SIZE}. Running ${loopsToRun} loops.`);
 
-        const idsToShift = finalUpdates.map(s => s.id);
-
         // 5. Bulk Update inside a transaction
         await client.query('BEGIN');
         console.log('Transaction started.');
@@ -105,7 +104,7 @@ async function assignRanks() {
         console.error('❌ Error during update. Transaction rolled back.', err);
     } finally {
         client.release();
-        console.log('Connection closed.');
+        await pool.end();
         process.exit(0);
     }
 }

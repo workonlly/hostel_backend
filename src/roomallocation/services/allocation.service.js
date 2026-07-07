@@ -4,6 +4,7 @@ import { evaluate as evaluateRollovers } from '../engine/rolloverEvaluator.js';
 import { execute as executeGhostPenalty } from '../engine/ghostPenalty.js';
 import { evaluate as evaluateShatter }  from '../engine/shatterProtocol.js';
 import { execute as executeFinalSweep } from '../engine/finalSweep.js';
+import * as cacheService from '../../cache/cache.service.js';
 
 const GROUP_STATUS = {
     FORMING: 'FORMING',
@@ -457,6 +458,43 @@ class AllocationService {
             hostelName:   room.hostel_name ?? null,
             occupants:    room.occupants || [],
         }));
+    }
+
+    // =====================================================
+    // 3.5. GET ROOM FILTERS (CACHED)
+    // =====================================================
+    async getRoomFilters(hostelId) {
+        const cacheKey = `hostel:${hostelId}:filters`;
+        const cached = await cacheService.getCache(cacheKey);
+        if (cached) {
+            return cached; // Already JSON parsed by getCache
+        }
+
+        // Query distinct capacities (for type) and blocks
+        const query = `
+            SELECT DISTINCT max_capacity, substring(room_number from '^([A-Za-z]+)') as block
+            FROM room
+            WHERE hostel_id = $1 OR hostel_id = (SELECT target_hostel_id FROM hostel WHERE id = $1)
+        `;
+        const res = await pool.query(query, [hostelId]);
+
+        const capacities = new Set();
+        const blocks = new Set();
+
+        res.rows.forEach(row => {
+            if (row.max_capacity) capacities.add(row.max_capacity);
+            if (row.block) blocks.add(row.block.toUpperCase());
+        });
+
+        const availableTypes = Array.from(capacities).map(c => `${c}-Seater`).sort();
+        const availableBlocks = Array.from(blocks).filter(Boolean).sort();
+
+        const result = { availableTypes, availableBlocks };
+        
+        // Cache for 1 hour
+        await cacheService.setCache(cacheKey, result, 3600);
+
+        return result;
     }
 
     // =====================================================

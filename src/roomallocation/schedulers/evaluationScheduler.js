@@ -90,16 +90,32 @@ export async function checkShatteredGroups(batchId) {
 
         const results = [];
         for (const group of groupsRes.rows) {
+            // Resolve hostel for this group so we can emit to the right channel
+            const hostelRes = await pool.query(
+                `SELECT b.hostel_id, ARRAY_AGG(s.id) AS member_ids
+                 FROM housing_group hg
+                 JOIN batch b ON b.id = hg.batch_id
+                 LEFT JOIN student s ON s.group_id = hg.id
+                 WHERE hg.id = $1
+                 GROUP BY b.hostel_id`,
+                [group.id]
+            );
+            const hostelId  = hostelRes.rows[0]?.hostel_id ?? null;
+            const memberIds = hostelRes.rows[0]?.member_ids ?? [];
+
             const result = await allocationService.triggerShatterProtocol(group.id);
             results.push({ groupId: group.id, result });
 
             if (result?.shattered) {
                 console.log(`[evaluationScheduler] Group ${group.id} shattered: ${result.reason}`);
+                // Emit to the hostel channel so only students in that hostel receive it.
+                // Include memberIds so the frontend can check if the current student is affected.
                 emit(WS_EVENTS.EVALUATION_DONE, {
-                    type: 'SHATTERED',
-                    groupId: group.id,
-                    reason: result.reason,
-                });
+                    type:      'SHATTERED',
+                    groupId:   group.id,
+                    memberIds,
+                    reason:    result.reason,
+                }, hostelId);
             }
         }
 

@@ -12,7 +12,7 @@ router.use(auth);
 // =====================================================
 router.post("/run", async (req, res) => {
     try {
-        const { batchId, roundNumber } = req.body;
+        const { batchId, roundNumber, roundDurationMs } = req.body;
 
         if (!batchId || !roundNumber) {
             return res.status(400).json({
@@ -25,14 +25,31 @@ router.post("/run", async (req, res) => {
 
         // Keep websocket clients in sync when this manual endpoint is used.
         const batchRes = await pool.query(
-            `SELECT hostel_id FROM batch WHERE id = $1`,
+            `SELECT hostel_id, end_time FROM batch WHERE id = $1`,
             [batchId]
         );
         if (batchRes.rowCount > 0) {
             const hostelId = batchRes.rows[0].hostel_id;
+            const batchEndTime = batchRes.rows[0].end_time;
             const rooms = await allocationService.getLiveRoomMap(hostelId);
+
             emit(WS_EVENTS.ROUND_EXECUTED, { batchId, round: roundNumber, result }, hostelId);
             emit(WS_EVENTS.ROOM_MAP_UPDATED, { hostelId, batchId, round: roundNumber, rooms }, hostelId);
+
+            // Emit ROUND_OPENED for the next round if still within the batch
+            const nextRound = roundNumber + 1;
+            const TOTAL_ROUNDS = 6;
+            if (nextRound <= TOTAL_ROUNDS) {
+                // Duration can be overridden by caller; default 10 min
+                const durationMs = roundDurationMs ?? (10 * 60 * 1000);
+                const roundEndsAt = new Date(Date.now() + durationMs).toISOString();
+                emit(WS_EVENTS.ROUND_OPENED, {
+                    batchId,
+                    hostelId,
+                    roundNumber: nextRound,
+                    roundEndsAt,
+                }, hostelId);
+            }
         }
 
         res.status(200).json({
@@ -47,6 +64,32 @@ router.post("/run", async (req, res) => {
         });
     }
 });
+
+// =====================================================
+// OPEN ROUND (sets real round timer on all clients)
+// =====================================================
+router.post("/dev/open-round", async (req, res) => {
+    try {
+        const { batchId, roundNumber, roundDurationMs } = req.body;
+        if (!batchId || !roundNumber) {
+            return res.status(400).json({ success: false, message: "batchId and roundNumber are required" });
+        }
+        const batchRes = await pool.query(`SELECT hostel_id FROM batch WHERE id = $1`, [batchId]);
+        if (batchRes.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "Batch not found" });
+        }
+        const hostelId = batchRes.rows[0].hostel_id;
+        const durationMs = roundDurationMs ?? (10 * 60 * 1000);
+        const roundEndsAt = new Date(Date.now() + durationMs).toISOString();
+
+        emit(WS_EVENTS.ROUND_OPENED, { batchId, hostelId, roundNumber, roundEndsAt }, hostelId);
+
+        res.status(200).json({ success: true, roundNumber, roundEndsAt });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 
 // =====================================================
 // SUBMIT PREFERENCES
@@ -67,6 +110,18 @@ router.get("/rooms/:hostelId", async (req, res) => {
     try {
         const result = await allocationService.getLiveRoomMap(req.params.hostelId, req.query.studentId);
         res.status(200).json({ success: true, rooms: result });
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    }
+});
+
+// =====================================================
+// ROOM FILTERS
+// =====================================================
+router.get("/filters/:hostelId", async (req, res) => {
+    try {
+        const result = await allocationService.getRoomFilters(req.params.hostelId);
+        res.status(200).json({ success: true, ...result });
     } catch (error) {
         res.status(error.statusCode || 500).json({ success: false, message: error.message });
     }
