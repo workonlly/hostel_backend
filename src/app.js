@@ -134,6 +134,10 @@ app.use(
     studentRoutes
 );
 
+// Face Authentication Routes
+import faceAuthRoutes from "./face-auth/face-auth.routes.js";
+app.use("/api/face-auth", faceAuthRoutes);
+
 // === Our Room Allocation Routes ===
 app.use("/api/groups", groupRoutes);
 app.use("/api/rooms", roomRoutes);
