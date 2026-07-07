@@ -3,12 +3,16 @@
  * ============================================================
  * Timing domain: BATCH LIFECYCLE
  *
+ * NEW ARCHITECTURE (year-based):
+ *   Batches now belong to an allocation_event (not a hostel).
+ *   All hostel_id references replaced with allocation_event_id.
+ *
  * Owns:
  *   - Activating batches (PENDING → ACTIVE)
  *   - Closing batches   (ACTIVE  → COMPLETED)
  *   - Queuing the next batch
- *   - Hostel phase transitions (SOFT_LOCK → LIVE_BATCHES,
- *                               LIVE_BATCHES → FINAL_SWEEP)
+ *   - Event phase transitions (SOFT_LOCK → LIVE_BATCHES,
+ *                              LIVE_BATCHES → FINAL_SWEEP)
  *   - WebSocket BATCH_* events
  *
  * Does NOT:
@@ -17,7 +21,7 @@
  *   - Contain business logic     → services / engine
  *
  * Reliability guarantee:
- *   All state is derived from the DB (batches, hostels tables).
+ *   All state is derived from the DB (batch, allocation_event tables).
  *   Timers are re-derived on startup — safe across restarts.
  * ============================================================
  */
@@ -53,9 +57,9 @@ export async function recoverOnBoot() {
 
     // 1. Resume any currently ACTIVE batch
     const activeRes = await pool.query(
-        `SELECT b.*, h.current_phase, h.is_paused
+        `SELECT b.*, ae.status AS event_phase, ae.is_paused
          FROM batch b
-         JOIN hostel h ON b.hostel_id = h.id
+         JOIN allocation_event ae ON b.allocation_event_id = ae.id
          WHERE b.status = 'ACTIVE'`
     );
 
@@ -148,7 +152,7 @@ function _armEndTimer(batch) {
 
 /**
  * Transition PENDING → ACTIVE.
- * Emits BATCH_STARTED, transitions hostel phase if this is
+ * Emits BATCH_STARTED, transitions event phase if this is
  * the first batch, then hands off to roundScheduler.
  */
 export async function startBatch(batchId) {
@@ -163,7 +167,8 @@ export async function startBatch(batchId) {
     }
 
     const batch = batchRes.rows[0];
-    console.log(`[batchScheduler] Batch ${batch.batch_number} activated`);
+    const eventId = batch.allocation_event_id;
+    console.log(`[batchScheduler] Batch ${batch.batch_number} activated (event ${eventId})`);
 
     // ── HARD LOCK: first action on batch start ─────────────
     // All SOFT_LOCKED groups assigned to this batch are immediately
@@ -179,20 +184,20 @@ export async function startBatch(batchId) {
         `[batchScheduler] Hard-locked ${hardLockRes.rowCount} groups for batch ${batch.batch_number}`
     );
 
-    // Transition hostel to LIVE_BATCHES if not already
-    await transitionSystemPhase(batch.hostel_id, SYSTEM_PHASES.LIVE_BATCHES);
+    // Transition event phase to LIVE_BATCHES if not already
+    await transitionSystemPhase(eventId, SYSTEM_PHASES.LIVE_BATCHES);
 
     // Arm the end timer
     _armEndTimer(batch);
 
-    // Emit to all clients in this hostel's room
+    // Emit to all clients watching this event's channel
     emit(WS_EVENTS.BATCH_STARTED, {
-        batchId: batch.id,
+        batchId:     batch.id,
         batchNumber: batch.batch_number,
-        hostelId: batch.hostel_id,
-        startTime: batch.start_time,
-        endTime: batch.end_time,
-    }, batch.hostel_id);
+        eventId,
+        startTime:   batch.start_time,
+        endTime:     batch.end_time,
+    }, eventId);
 
     // Hand off to round scheduler to begin Round 1
     if (_roundScheduler) {
@@ -220,7 +225,8 @@ export async function endBatch(batchId) {
     }
 
     const batch = batchRes.rows[0];
-    console.log(`[batchScheduler] Batch ${batch.batch_number} completed`);
+    const eventId = batch.allocation_event_id;
+    console.log(`[batchScheduler] Batch ${batch.batch_number} completed (event ${eventId})`);
 
     // Clear timers
     const timers = _timers.get(batchId);
@@ -236,18 +242,18 @@ export async function endBatch(batchId) {
     }
 
     emit(WS_EVENTS.BATCH_ENDED, {
-        batchId: batch.id,
+        batchId:     batch.id,
         batchNumber: batch.batch_number,
-        hostelId: batch.hostel_id,
-    }, batch.hostel_id);
+        eventId,
+    }, eventId);
 
     // Trigger post-batch evaluations (rollover, penalties, shatter)
     if (_evaluationScheduler) {
-        await _evaluationScheduler.runPostBatchEvaluation(batchId, batch.hostel_id);
+        await _evaluationScheduler.runPostBatchEvaluation(batchId, eventId);
     }
 
     // Try to activate the next queued batch
-    await activateNextBatch(batch.hostel_id, batch.batch_number);
+    await activateNextBatch(eventId, batch.batch_number);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -255,65 +261,69 @@ export async function endBatch(batchId) {
 // ─────────────────────────────────────────────────────────
 
 /**
- * Find the next PENDING batch for the hostel and arm its timer.
+ * Find the next PENDING batch for the event and arm its timer.
  * If none exists, transition to FINAL_SWEEP.
+ *
+ * @param {string} eventId — UUID of allocation_event
+ * @param {number} completedBatchNumber
  */
-export async function activateNextBatch(hostelId, completedBatchNumber) {
+export async function activateNextBatch(eventId, completedBatchNumber) {
     const nextRes = await pool.query(
         `SELECT * FROM batch
-         WHERE hostel_id = $1
+         WHERE allocation_event_id = $1
            AND status = 'PENDING'
            AND batch_number > $2
          ORDER BY batch_number ASC
          LIMIT 1`,
-        [hostelId, completedBatchNumber]
+        [eventId, completedBatchNumber]
     );
 
     if (nextRes.rowCount === 0) {
-        // No more pending batches — transition hostel phase.
-        // Final sweep is triggered by evaluationScheduler.runPostBatchEvaluation()
-        // once it confirms all batches (PENDING + ACTIVE) are done.
-        console.log(`[batchScheduler] No more pending batches for hostel ${hostelId}. Transitioning to FINAL_SWEEP.`);
-        await transitionSystemPhase(hostelId, SYSTEM_PHASES.FINAL_SWEEP);
+        // No more pending batches — transition event phase to FINAL_SWEEP
+        console.log(`[batchScheduler] No more pending batches for event ${eventId}. Transitioning to FINAL_SWEEP.`);
+        await transitionSystemPhase(eventId, SYSTEM_PHASES.FINAL_SWEEP);
         return;
     }
 
     const nextBatch = nextRes.rows[0];
-    console.log(`[batchScheduler] Next batch ${nextBatch.batch_number} queued`);
+    console.log(`[batchScheduler] Next batch ${nextBatch.batch_number} queued (event ${eventId})`);
 
     emit(WS_EVENTS.NEXT_BATCH_READY, {
-        batchId: nextBatch.id,
+        batchId:     nextBatch.id,
         batchNumber: nextBatch.batch_number,
-        hostelId: nextBatch.hostel_id,
-        startTime: nextBatch.start_time,
-    }, hostelId);
+        eventId,
+        startTime:   nextBatch.start_time,
+    }, eventId);
 
     _armStartTimer(nextBatch);
 }
 
 // ─────────────────────────────────────────────────────────
-// D. HOSTEL PHASE TRANSITIONS
+// D. EVENT PHASE TRANSITIONS
 // ─────────────────────────────────────────────────────────
 
 /**
- * Safely transition hostel phase.
+ * Safely transition allocation event phase.
  * No-ops if already in target phase (idempotent for recovery).
+ *
+ * @param {string} eventId — UUID of allocation_event
+ * @param {string} targetPhase
  */
-export async function transitionSystemPhase(hostelId, targetPhase) {
+export async function transitionSystemPhase(eventId, targetPhase) {
     try {
-        const hostelRes = await pool.query(
-            `SELECT current_phase FROM hostel WHERE id = $1`,
-            [hostelId]
+        const eventRes = await pool.query(
+            `SELECT status FROM allocation_event WHERE id = $1`,
+            [eventId]
         );
 
-        if (hostelRes.rows[0]?.current_phase === targetPhase) {
+        if (eventRes.rows[0]?.status === targetPhase) {
             return; // Already correct — no-op
         }
 
-        await setCurrentPhase(hostelId, targetPhase);
-        console.log(`[batchScheduler] Hostel ${hostelId} → ${targetPhase}`);
+        await setCurrentPhase(eventId, targetPhase);
+        console.log(`[batchScheduler] Event ${eventId} → ${targetPhase}`);
 
-        emit(WS_EVENTS.PHASE_CHANGED, { hostelId, phase: targetPhase }, hostelId);
+        emit(WS_EVENTS.PHASE_CHANGED, { eventId, phase: targetPhase }, eventId);
     } catch (err) {
         // Log but don't crash — phase may already be correct after restart
         console.warn(`[batchScheduler] transitionSystemPhase warning: ${err.message}`);
@@ -323,6 +333,8 @@ export async function transitionSystemPhase(hostelId, targetPhase) {
 /**
  * Manually enqueue a batch (for admin use or testing).
  * Creates start/end timers immediately.
+ *
+ * @param {string} batchId
  */
 export async function scheduleBatch(batchId) {
     const res = await pool.query(`SELECT * FROM batch WHERE id = $1`, [batchId]);

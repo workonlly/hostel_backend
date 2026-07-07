@@ -11,6 +11,7 @@ import hostelRoutes from "./roomallocation/hostels/hostels.routes.js";
 import preferenceRoutes from "./roomallocation/preferences/preferences.routes.js";
 import allocationRoutes from "./roomallocation/allocation.routes.js";
 import adminRoutes from "./roomallocation/admin/admin.routes.js";
+import eventRoutes from "./roomallocation/admin/event.routes.js";
 import wardenRoutes from "./roomallocation/first-year-allocation/warden.routes.js";
 
 import importRoutes from "./imports/import.routes.js";
@@ -140,6 +141,7 @@ app.use("/api/hostels", hostelRoutes);
 app.use("/api/preferences", preferenceRoutes);
 app.use("/api/allocation", allocationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin", eventRoutes);  // Year-based allocation event management
 app.use("/api/warden", wardenRoutes);
 
 // Import Routes

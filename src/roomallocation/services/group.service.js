@@ -37,9 +37,21 @@ export const createGroup = async (primaryApplicantId) => {
         const student = studentRes.rows[0];
         if (student.group_id) throw new ApiError(400, 'Student is already in a group');
 
-        // Check hostel phase
-        const hostelRes = await client.query(`SELECT current_phase FROM hostel WHERE id = $1`, [student.hostel_id]);
-        const currentPhase = hostelRes.rows[0].current_phase;
+        // Check event phase for student's year
+        // Prefer group's event if they have one; fallback to current_year lookup
+        const eventRes = await client.query(
+            `SELECT ae.status AS current_phase
+             FROM allocation_event ae
+             JOIN event_hostel_participation ehp ON ehp.allocation_event_id = ae.id
+             WHERE ehp.hostel_id = $1
+               AND ae.target_year = (
+                   SELECT current_year FROM student WHERE id = $2
+               )
+             ORDER BY ae.created_at DESC
+             LIMIT 1`,
+            [student.hostel_id, primaryApplicantId]
+        );
+        const currentPhase = eventRes.rows[0]?.current_phase ?? 'ADMIN_MODE';
 
         let status = 'FORMING';
         let batchId = null;

@@ -25,30 +25,29 @@ router.post("/run", async (req, res) => {
 
         // Keep websocket clients in sync when this manual endpoint is used.
         const batchRes = await pool.query(
-            `SELECT hostel_id, end_time FROM batch WHERE id = $1`,
+            `SELECT allocation_event_id, end_time FROM batch WHERE id = $1`,
             [batchId]
         );
         if (batchRes.rowCount > 0) {
-            const hostelId = batchRes.rows[0].hostel_id;
+            const eventId = batchRes.rows[0].allocation_event_id;
             const batchEndTime = batchRes.rows[0].end_time;
-            const rooms = await allocationService.getLiveRoomMap(hostelId);
+            const rooms = await allocationService.getLiveRoomMap(eventId);
 
-            emit(WS_EVENTS.ROUND_EXECUTED, { batchId, round: roundNumber, result }, hostelId);
-            emit(WS_EVENTS.ROOM_MAP_UPDATED, { hostelId, batchId, round: roundNumber, rooms }, hostelId);
+            emit(WS_EVENTS.ROUND_EXECUTED, { batchId, round: roundNumber, result }, eventId);
+            emit(WS_EVENTS.ROOM_MAP_UPDATED, { eventId, batchId, round: roundNumber, rooms }, eventId);
 
             // Emit ROUND_OPENED for the next round if still within the batch
             const nextRound = roundNumber + 1;
             const TOTAL_ROUNDS = 6;
             if (nextRound <= TOTAL_ROUNDS) {
-                // Duration can be overridden by caller; default 10 min
                 const durationMs = roundDurationMs ?? (10 * 60 * 1000);
                 const roundEndsAt = new Date(Date.now() + durationMs).toISOString();
                 emit(WS_EVENTS.ROUND_OPENED, {
                     batchId,
-                    hostelId,
+                    eventId,
                     roundNumber: nextRound,
                     roundEndsAt,
-                }, hostelId);
+                }, eventId);
             }
         }
 
@@ -74,15 +73,15 @@ router.post("/dev/open-round", async (req, res) => {
         if (!batchId || !roundNumber) {
             return res.status(400).json({ success: false, message: "batchId and roundNumber are required" });
         }
-        const batchRes = await pool.query(`SELECT hostel_id FROM batch WHERE id = $1`, [batchId]);
+        const batchRes = await pool.query(`SELECT allocation_event_id FROM batch WHERE id = $1`, [batchId]);
         if (batchRes.rowCount === 0) {
             return res.status(404).json({ success: false, message: "Batch not found" });
         }
-        const hostelId = batchRes.rows[0].hostel_id;
+        const eventId = batchRes.rows[0].allocation_event_id;
         const durationMs = roundDurationMs ?? (10 * 60 * 1000);
         const roundEndsAt = new Date(Date.now() + durationMs).toISOString();
 
-        emit(WS_EVENTS.ROUND_OPENED, { batchId, hostelId, roundNumber, roundEndsAt }, hostelId);
+        emit(WS_EVENTS.ROUND_OPENED, { batchId, eventId, roundNumber, roundEndsAt }, eventId);
 
         res.status(200).json({ success: true, roundNumber, roundEndsAt });
     } catch (error) {
@@ -104,11 +103,11 @@ router.post("/submit-preferences", async (req, res) => {
 });
 
 // =====================================================
-// LIVE ROOM MAP
+// LIVE ROOM MAP — now event-scoped
 // =====================================================
-router.get("/rooms/:hostelId", async (req, res) => {
+router.get("/rooms/:eventId", async (req, res) => {
     try {
-        const result = await allocationService.getLiveRoomMap(req.params.hostelId, req.query.studentId);
+        const result = await allocationService.getLiveRoomMap(req.params.eventId, req.query.studentId);
         res.status(200).json({ success: true, rooms: result });
     } catch (error) {
         res.status(error.statusCode || 500).json({ success: false, message: error.message });
@@ -116,11 +115,11 @@ router.get("/rooms/:hostelId", async (req, res) => {
 });
 
 // =====================================================
-// ROOM FILTERS
+// ROOM FILTERS — now event-scoped
 // =====================================================
-router.get("/filters/:hostelId", async (req, res) => {
+router.get("/filters/:eventId", async (req, res) => {
     try {
-        const result = await allocationService.getRoomFilters(req.params.hostelId);
+        const result = await allocationService.getRoomFilters(req.params.eventId);
         res.status(200).json({ success: true, ...result });
     } catch (error) {
         res.status(error.statusCode || 500).json({ success: false, message: error.message });
@@ -152,19 +151,19 @@ router.get("/results/:batchId", async (req, res) => {
 });
 
 // =====================================================
-// ALL BATCHES FOR HOSTEL (Timeline)
+// ALL BATCHES FOR EVENT (Timeline)
 // =====================================================
-router.get("/batches/:hostelId", async (req, res) => {
+router.get("/batches/:eventId", async (req, res) => {
     try {
-        const result = await allocationService.getBatches(req.params.hostelId);
+        const result = await allocationService.getBatches(req.params.eventId);
         res.status(200).json({ success: true, result });
     } catch (error) {
         // Fallback since getBatches might not exist
         const db = (await import("../db/pool.js")).default;
         const batchesRes = await db.query(
-            `SELECT id as batch_id, batch_number, start_time, end_time, status 
-             FROM batch WHERE hostel_id = $1 ORDER BY batch_number ASC`,
-            [req.params.hostelId]
+            `SELECT id as batch_id, batch_number, start_time, end_time, status
+             FROM batch WHERE allocation_event_id = $1 ORDER BY batch_number ASC`,
+            [req.params.eventId]
         );
         res.status(200).json({ success: true, batches: batchesRes.rows });
     }
@@ -177,11 +176,10 @@ router.post("/dev/advance-phase", async (req, res) => {
     try {
         const { setCurrentPhase } = await import("./services/phase.service.js");
         const { emit, WS_EVENTS }  = await import("./websocket/emitter.js");
-        const { hostelId, targetPhase } = req.body;
-        await setCurrentPhase(hostelId, targetPhase);
-        // Broadcast so all connected clients refetch without a manual page reload
-        emit(WS_EVENTS.PHASE_CHANGED, { hostelId, phase: targetPhase }, hostelId);
-        console.log(`[Backend] Phase manually advanced to ${targetPhase} for hostel ${hostelId}`);
+        const { eventId, targetPhase } = req.body;
+        await setCurrentPhase(eventId, targetPhase);
+        emit(WS_EVENTS.PHASE_CHANGED, { eventId, phase: targetPhase }, eventId);
+        console.log(`[Backend] Phase manually advanced to ${targetPhase} for event ${eventId}`);
         res.status(200).json({ success: true, message: `Advanced to ${targetPhase}` });
     } catch (error) {
         res.status(error.statusCode || 500).json({ success: false, message: error.message });
@@ -190,21 +188,43 @@ router.post("/dev/advance-phase", async (req, res) => {
 
 router.post("/dev/reset-phase", async (req, res) => {
     try {
-        const { hostelId } = req.body;
+        const { eventId } = req.body;
         const db = (await import("../db/pool.js")).default;
         const { emit, WS_EVENTS } = await import("./websocket/emitter.js");
-        
+
         await db.query('BEGIN');
-        await db.query(`DELETE FROM room_assignment WHERE room_id IN (SELECT id FROM room WHERE hostel_id = $1)`, [hostelId]);
-        await db.query(`DELETE FROM allocation_submission WHERE batch_id IN (SELECT id FROM batch WHERE hostel_id = $1)`, [hostelId]);
-        await db.query(`UPDATE housing_group SET status = 'FORMING', batch_id = NULL WHERE id IN (SELECT group_id FROM student WHERE hostel_id = $1)`, [hostelId]);
-        await db.query(`DELETE FROM batch WHERE hostel_id = $1`, [hostelId]);
-        await db.query(`UPDATE hostel SET current_phase = 'LOBBY' WHERE id = $1`, [hostelId]);
+        // Reset all room assignments for rooms in event pool
+        await db.query(
+            `DELETE FROM room_assignment WHERE room_id IN (
+                SELECT room_id FROM event_room_pool WHERE allocation_event_id = $1
+             )`,
+            [eventId]
+        );
+        // Clear submissions
+        await db.query(
+            `DELETE FROM allocation_submission WHERE batch_id IN (
+                SELECT id FROM batch WHERE allocation_event_id = $1
+             )`,
+            [eventId]
+        );
+        // Unlock groups
+        await db.query(
+            `UPDATE housing_group
+             SET status = 'FORMING', batch_id = NULL
+             WHERE allocation_event_id = $1`,
+            [eventId]
+        );
+        // Delete batches
+        await db.query(`DELETE FROM batch WHERE allocation_event_id = $1`, [eventId]);
+        // Reset event phase
+        await db.query(
+            `UPDATE allocation_event SET status = 'LOBBY', updated_at = NOW() WHERE id = $1`,
+            [eventId]
+        );
         await db.query('COMMIT');
-        
-        // Broadcast phase reset to all connected clients
-        emit(WS_EVENTS.PHASE_CHANGED, { hostelId, phase: 'LOBBY' }, hostelId);
-        res.status(200).json({ success: true, message: 'Phase reset to LOBBY. All locks lifted and batches destroyed.' });
+
+        emit(WS_EVENTS.PHASE_CHANGED, { eventId, phase: 'LOBBY' }, eventId);
+        res.status(200).json({ success: true, message: 'Event reset to LOBBY. All locks lifted and batches destroyed.' });
     } catch (error) {
         const db = (await import("../db/pool.js")).default;
         await db.query('ROLLBACK');

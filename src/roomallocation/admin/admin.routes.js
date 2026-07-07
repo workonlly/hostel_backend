@@ -71,13 +71,12 @@ function requireLevel(minLevel) {
 }
 
 // ─── GET /api/admin/hostels ───────────────────────────────────────────────────
+// Returns all hostels (simplified — phase/date now live on allocation_event).
 
 router.get('/hostels', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT id, name, type, total_capacity, current_phase, is_paused,
-                    allocation_date, lobby_opens_at,
-                    target_hostel_id, source_hostel_id
+            `SELECT id, name, type, total_capacity, created_at
              FROM hostel ORDER BY name ASC`
         );
         return res.json({ success: true, hostels: result.rows });

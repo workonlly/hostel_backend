@@ -234,18 +234,18 @@ export async function executeRound(batchId, round) {
     // ── Write CSV + log to outputs/<hostel>/ ─────────────
     try {
         const batchMeta = await pool.query(
-            `SELECT b.batch_number, b.hostel_id, h.name AS hostel_name
+            `SELECT b.batch_number, b.allocation_event_id, ae.target_year
              FROM batch b
-             JOIN hostel h ON h.id = b.hostel_id
+             JOIN allocation_event ae ON ae.id = b.allocation_event_id
              WHERE b.id = $1`,
             [batchId]
         );
 
         if (batchMeta.rowCount > 0 && result && !result.error) {
-            const { batch_number, hostel_id, hostel_name } = batchMeta.rows[0];
+            const { batch_number, allocation_event_id } = batchMeta.rows[0];
             await writeAllocationOutput({
-                hostelName:  hostel_name,
-                hostelId:    hostel_id,
+                hostelName:  `event-${allocation_event_id}`,
+                hostelId:    allocation_event_id,
                 batchId,
                 batchNumber: batch_number,
                 roundNumber: round,
@@ -269,9 +269,11 @@ export async function executeRound(batchId, round) {
     // during this round. Self-terminating if none exist.
     if (_evaluationScheduler) {
         try {
-            const batchRes = await pool.query(`SELECT hostel_id FROM batch WHERE id = $1`, [batchId]);
+            const batchRes = await pool.query(
+                `SELECT allocation_event_id FROM batch WHERE id = $1`, [batchId]
+            );
             if (batchRes.rowCount > 0) {
-                await _evaluationScheduler.recalculateGroupRanks(batchRes.rows[0].hostel_id);
+                await _evaluationScheduler.recalculateGroupRanks(batchRes.rows[0].allocation_event_id);
             }
         } catch (err) {
             console.error(`[roundScheduler] recalculateGroupRanks error:`, err.message);
@@ -292,20 +294,20 @@ export async function executeRound(batchId, round) {
 export async function broadcastResults(batchId, round) {
     try {
         const batchRes = await pool.query(
-            `SELECT hostel_id FROM batch WHERE id = $1`,
+            `SELECT allocation_event_id FROM batch WHERE id = $1`,
             [batchId]
         );
         if (batchRes.rowCount === 0) return;
 
-        const { hostel_id } = batchRes.rows[0];
-        const roomMap = await allocationService.getLiveRoomMap(hostel_id);
+        const { allocation_event_id } = batchRes.rows[0];
+        const roomMap = await allocationService.getLiveRoomMap(allocation_event_id);
 
         // Pusher has a 10 KB per-message limit.
         // Strip heavy occupants arrays before broadcasting;
         // clients that need occupant detail will re-fetch via REST.
         const slimRooms = roomMap.map(({ occupants: _o, ...rest }) => rest);
 
-        emit(WS_EVENTS.ROOM_MAP_UPDATED, { hostelId: hostel_id, batchId, round, rooms: slimRooms }, hostel_id);
+        emit(WS_EVENTS.ROOM_MAP_UPDATED, { eventId: allocation_event_id, batchId, round, rooms: slimRooms }, allocation_event_id);
     } catch (err) {
         console.error(`[roundScheduler] broadcastResults error:`, err.message);
     }

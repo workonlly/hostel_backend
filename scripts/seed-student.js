@@ -49,9 +49,9 @@ async function seedStudents() {
         // -----------------------------------------
         const students = [];
         let globalRollCounter = 1;
-        const maxRollRes = await client.query(`SELECT roll_no FROM student WHERE roll_no LIKE '23BCH%' ORDER BY roll_no DESC LIMIT 1`);
+        const maxRollRes = await client.query(`SELECT roll_no FROM student WHERE roll_no LIKE '23BCE%' ORDER BY roll_no DESC LIMIT 1`);
         if (maxRollRes.rows.length > 0) {
-            const numPart = parseInt(maxRollRes.rows[0].roll_no.replace('23BCH', ''), 10);
+            const numPart = parseInt(maxRollRes.rows[0].roll_no.replace('23BCE', ''), 10);
             if (!isNaN(numPart)) globalRollCounter = numPart + 1;
         }
 
@@ -64,6 +64,7 @@ async function seedStudents() {
 
         function createStudentObj(hostel, rollNo, name, individual_rank, type) {
             const joiningYear = faker.helpers.arrayElement([2021, 2022, 2023]);
+            const currentYear = 2026 - joiningYear + 1; // e.g. 2023 -> 4, 2024 -> 3
             return {
                 name,
                 father_name: faker.person.fullName(),
@@ -82,6 +83,7 @@ async function seedStudents() {
                 pincode: faker.string.numeric(6),
                 department: "Computer Science and Engineering",
                 joining_year: joiningYear,
+                current_year: currentYear,
                 cgpa: null,
                 individual_rank,
                 type // 'grouped', 'unassigned', or 'bot'
@@ -91,21 +93,21 @@ async function seedStudents() {
         for (const hostel of hostelRes.rows) {
             // 1. Grouped Students
             for (let i = 1; i <= STUDENTS_PER_HOSTEL; i++) {
-                const rollNo = `23BCH${String(globalRollCounter).padStart(4, "0")}`;
+                const rollNo = `23BCE${String(globalRollCounter).padStart(4, "0")}`;
                 students.push(createStudentObj(hostel, rollNo, faker.person.fullName(), rank++, 'grouped'));
                 globalRollCounter++;
             }
 
             // 2. Unassigned Students
             for (let i = 1; i <= UNASSIGNED_STUDENTS_PER_HOSTEL; i++) {
-                const rollNo = `23BCH${String(globalRollCounter).padStart(4, "0")}`;
+                const rollNo = `23BCE${String(globalRollCounter).padStart(4, "0")}`;
                 students.push(createStudentObj(hostel, rollNo, faker.person.fullName(), rank++, 'unassigned'));
                 globalRollCounter++;
             }
 
             // 3. Bots
             for (let i = 1; i <= BOTS_PER_HOSTEL; i++) {
-                const rollNo = `23BCH${String(globalRollCounter).padStart(4, "0")}`;
+                const rollNo = `23BCE${String(globalRollCounter).padStart(4, "0")}`;
                 students.push(createStudentObj(hostel, rollNo, `Bot ${globalBotCounter}`, rank++, 'bot'));
                 globalRollCounter++;
                 globalBotCounter++;
@@ -119,14 +121,14 @@ async function seedStudents() {
         const placeholders = [];
 
         students.forEach((s, idx) => {
-            const p = idx * 16;
+            const p = idx * 17;
 
             placeholders.push(`
             (
                 $${p + 1}, $${p + 2}, $${p + 3}, $${p + 4},
                 $${p + 5}, $${p + 6}, $${p + 7}, $${p + 8},
                 $${p + 9}, $${p + 10}, $${p + 11}, $${p + 12},
-                $${p + 13}, $${p + 14}, $${p + 15}, $${p + 16}
+                $${p + 13}, $${p + 14}, $${p + 15}, $${p + 16}, $${p + 17}
             )
             `);
 
@@ -146,6 +148,7 @@ async function seedStudents() {
                 s.pincode,
                 s.department,
                 s.joining_year,
+                s.current_year,
                 s.individual_rank
             );
         });
@@ -157,7 +160,7 @@ async function seedStudents() {
             INSERT INTO student (
                 name, father_name, email, password, hostel, hostel_id, 
                 roll_no, phone, parent_number, blood_group, state, 
-                address, pincode, department, joining_year, individual_rank
+                address, pincode, department, joining_year, current_year, individual_rank
             )
             VALUES ${placeholders.join(",")}
             RETURNING id

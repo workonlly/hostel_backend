@@ -90,32 +90,30 @@ export async function checkShatteredGroups(batchId) {
 
         const results = [];
         for (const group of groupsRes.rows) {
-            // Resolve hostel for this group so we can emit to the right channel
-            const hostelRes = await pool.query(
-                `SELECT b.hostel_id, ARRAY_AGG(s.id) AS member_ids
+            // Resolve event + member IDs for WebSocket emission
+            const eventRes = await pool.query(
+                `SELECT b.allocation_event_id AS event_id, ARRAY_AGG(s.id) AS member_ids
                  FROM housing_group hg
                  JOIN batch b ON b.id = hg.batch_id
                  LEFT JOIN student s ON s.group_id = hg.id
                  WHERE hg.id = $1
-                 GROUP BY b.hostel_id`,
+                 GROUP BY b.allocation_event_id`,
                 [group.id]
             );
-            const hostelId  = hostelRes.rows[0]?.hostel_id ?? null;
-            const memberIds = hostelRes.rows[0]?.member_ids ?? [];
+            const eventId  = eventRes.rows[0]?.event_id ?? null;
+            const memberIds = eventRes.rows[0]?.member_ids ?? [];
 
             const result = await allocationService.triggerShatterProtocol(group.id);
             results.push({ groupId: group.id, result });
 
             if (result?.shattered) {
                 console.log(`[evaluationScheduler] Group ${group.id} shattered: ${result.reason}`);
-                // Emit to the hostel channel so only students in that hostel receive it.
-                // Include memberIds so the frontend can check if the current student is affected.
                 emit(WS_EVENTS.EVALUATION_DONE, {
                     type:      'SHATTERED',
                     groupId:   group.id,
                     memberIds,
                     reason:    result.reason,
-                }, hostelId);
+                }, eventId);
             }
         }
 
@@ -134,41 +132,30 @@ export async function checkShatteredGroups(batchId) {
  * After a shatter, members can re-form into smaller groups.
  * These new groups have no group_rank yet.
  *
- * This function:
- *   1. Finds all groups in HARD_LOCKED or SOFT_LOCKED status with
- *      NULL group_rank (i.e., re-formed groups that haven't been ranked)
- *   2. Assigns rank based on their leader's individual_rank
- *   3. Stops when no such groups remain
- *
- * Called at the end of each round by executeRound().
- * Only runs if there are unranked groups — self-terminating.
- *
- * @param {string} hostelId
- * @returns {Promise<{ recalculated: number }>}
+ * @param {string} eventId — UUID of allocation_event
  */
-export async function recalculateGroupRanks(hostelId) {
-    // Check if any re-formed groups exist with no rank
+export async function recalculateGroupRanks(eventId) {
     const unrankedRes = await pool.query(
         `SELECT hg.id, s.individual_rank AS leader_rank
          FROM housing_group hg
          JOIN student s ON s.id = hg.primary_applicant_id
          JOIN batch b ON hg.batch_id = b.id
-         WHERE b.hostel_id = $1
+         WHERE b.allocation_event_id = $1
            AND hg.group_rank IS NULL
            AND hg.status NOT IN ('ALLOCATED', 'SHATTERED', 'PENALIZED', 'FORMING')`,
-        [hostelId]
+        [eventId]
     );
 
     if (unrankedRes.rowCount === 0) {
-        return { recalculated: 0 }; // Nothing to do — stop
+        return { recalculated: 0 };
     }
 
     console.log(`[evaluationScheduler] Recalculating ranks for ${unrankedRes.rowCount} re-formed groups`);
 
-    // Find the currently ACTIVE batch for this hostel — re-formed groups need to join it
+    // Find the currently ACTIVE batch for this event
     const activeBatchRes = await pool.query(
-        `SELECT id FROM batch WHERE hostel_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-        [hostelId]
+        `SELECT id FROM batch WHERE allocation_event_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+        [eventId]
     );
     const activeBatchId = activeBatchRes.rows[0]?.id ?? null;
 
@@ -202,16 +189,16 @@ export async function recalculateGroupRanks(hostelId) {
  * no more pending batches — no timer, no delay.
  * Each student assignment is its own transaction in the engine.
  */
-export async function runFinalSweep(hostelId) {
-    console.log(`[evaluationScheduler] Running final sweep for hostel ${hostelId}`);
+export async function runFinalSweep(eventId) {
+    console.log(`[evaluationScheduler] Running final sweep for event ${eventId}`);
     try {
-        const result = await allocationService.runFinalSweep(hostelId);
+        const result = await allocationService.runFinalSweep(eventId);
         console.log(`[evaluationScheduler] Final sweep result:`, result);
 
-        emit(WS_EVENTS.EVALUATION_DONE, { hostelId, sweep: 'FINAL', result }, hostelId);
+        emit(WS_EVENTS.EVALUATION_DONE, { eventId, sweep: 'FINAL', result }, eventId);
 
         // After final sweep, transition to ADMIN_MODE
-        await _transitionToAdminMode(hostelId);
+        await _transitionToAdminMode(eventId);
 
         return result;
     } catch (err) {
@@ -223,11 +210,11 @@ export async function runFinalSweep(hostelId) {
 // F. ADMIN MODE TRANSITION
 // ─────────────────────────────────────────────────────────
 
-async function _transitionToAdminMode(hostelId) {
+async function _transitionToAdminMode(eventId) {
     try {
-        await setCurrentPhase(hostelId, SYSTEM_PHASES.ADMIN_MODE);
-        console.log(`[evaluationScheduler] Hostel ${hostelId} → ADMIN_MODE`);
-        emit(WS_EVENTS.PHASE_CHANGED, { hostelId, phase: SYSTEM_PHASES.ADMIN_MODE }, hostelId);
+        await setCurrentPhase(eventId, SYSTEM_PHASES.ADMIN_MODE);
+        console.log(`[evaluationScheduler] Event ${eventId} → ADMIN_MODE`);
+        emit(WS_EVENTS.PHASE_CHANGED, { eventId, phase: SYSTEM_PHASES.ADMIN_MODE }, eventId);
     } catch (err) {
         console.warn(`[evaluationScheduler] Admin mode transition warning: ${err.message}`);
     }
@@ -248,30 +235,28 @@ async function _transitionToAdminMode(hostelId) {
  *   → checkShatteredGroups
  *   → [if last batch] runFinalSweep
  */
-export async function runPostBatchEvaluation(batchId, hostelId) {
+export async function runPostBatchEvaluation(batchId, eventId) {
     console.log(`[evaluationScheduler] Post-batch evaluation starting for batch ${batchId}`);
     try {
         await evaluateRollovers(batchId);
         await applyGhostPenalties(batchId);
         await checkShatteredGroups(batchId);
 
-        emit(WS_EVENTS.EVALUATION_DONE, { hostelId, batchId, sweep: 'POST_BATCH' }, hostelId);
+        emit(WS_EVENTS.EVALUATION_DONE, { eventId, batchId, sweep: 'POST_BATCH' }, eventId);
         console.log(`[evaluationScheduler] Post-batch evaluation complete for batch ${batchId}`);
 
-        // Check if ALL batches for this hostel are now COMPLETED.
-        // A batch is "over" when its status is neither PENDING nor ACTIVE.
-        // Final sweep fires only when zero batches remain in those states.
+        // Check if ALL batches for this event are now COMPLETED.
         const remainingRes = await pool.query(
             `SELECT 1 FROM batch
-             WHERE hostel_id = $1
+             WHERE allocation_event_id = $1
                AND status IN ('PENDING', 'ACTIVE')
              LIMIT 1`,
-            [hostelId]
+            [eventId]
         );
 
         if (remainingRes.rowCount === 0) {
-            console.log(`[evaluationScheduler] All batches complete for hostel ${hostelId} — triggering final sweep`);
-            await runFinalSweep(hostelId);
+            console.log(`[evaluationScheduler] All batches complete for event ${eventId} — triggering final sweep`);
+            await runFinalSweep(eventId);
         }
 
     } catch (err) {

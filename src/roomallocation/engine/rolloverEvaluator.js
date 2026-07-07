@@ -30,23 +30,23 @@ import pool from '../../db/pool.js';
  * @returns {Promise<{ rolledOver: number, skipped: number, nextBatchId: string|null }>}
  */
 export async function evaluate(batchId) {
-    // 1. Find the next PENDING batch for the same hostel
+    // 1. Find the next PENDING batch for the same event
     const batchRes = await pool.query(
-        `SELECT hostel_id, batch_number FROM batch WHERE id = $1`,
+        `SELECT allocation_event_id, batch_number FROM batch WHERE id = $1`,
         [batchId]
     );
     if (batchRes.rowCount === 0) throw new Error(`Batch ${batchId} not found`);
 
-    const { hostel_id, batch_number } = batchRes.rows[0];
+    const { allocation_event_id, batch_number } = batchRes.rows[0];
 
     const nextBatchRes = await pool.query(
         `SELECT id FROM batch
-         WHERE hostel_id = $1
+         WHERE allocation_event_id = $1
            AND batch_number > $2
            AND status = 'PENDING'
          ORDER BY batch_number ASC
          LIMIT 1`,
-        [hostel_id, batch_number]
+        [allocation_event_id, batch_number]
     );
     const nextBatchId = nextBatchRes.rows[0]?.id ?? null;
 

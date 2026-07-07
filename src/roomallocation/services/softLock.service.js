@@ -1,18 +1,22 @@
 /**
  * softLock.service.js — Soft Lock Batch Assignment
  * ============================================================
- * Triggered when the system transitions LOBBY → SOFT_LOCK.
+ * Triggered when the system transitions LOBBY → SOFT_LOCK for
+ * an allocation_event.
+ *
+ * NEW ARCHITECTURE (year-based):
+ *   assignGroupsToBatches(eventId) — event-scoped, not hostel-scoped.
  *
  * What it does:
- *   1. Fetches all FORMING groups for this hostel
- *   2. Joins to get each group's leader (primary_applicant_id) individual_rank
+ *   1. Fetches all FORMING groups assigned to this allocation event
+ *   2. Joins to get each group's leader individual_rank
  *   3. Sorts groups by leader rank ASC (lower rank = higher CGPA priority)
- *   4. Assigns groups to existing PENDING batches in chunks of BATCH_SIZE (50)
+ *   4. Assigns groups to PENDING batches in chunks of BATCH_SIZE (50)
  *   5. Sets housing_group.status = 'SOFT_LOCKED' and housing_group.batch_id
  *
  * Preconditions:
- *   - Batches must already exist in the batches table (created by admin).
- *   - Groups must be in FORMING status.
+ *   - Batches must already exist (via softLock auto-creation or admin pre-creation).
+ *   - Groups must be in FORMING status and have allocation_event_id = eventId.
  *
  * INVARIANTS:
  *   1. Idempotent — a group already SOFT_LOCKED is skipped.
@@ -27,25 +31,26 @@ import { BATCH_SIZE, BATCH_DURATION_MS, TEST_MODE } from '../constants/testConfi
 import { logBatchAssignment } from '../engine/allocationLogger.js';
 
 /**
- * Assign all FORMING groups for a hostel to PENDING batches,
+ * Assign all FORMING groups for an allocation event to PENDING batches,
  * sorted by leader CGPA rank, in chunks of BATCH_SIZE.
  *
- * @param {string} hostelId
+ * @param {string} eventId — UUID of allocation_event
  * @returns {Promise<{ assigned: number, unassigned: number, batches: number }>}
  */
-export async function assignGroupsToBatches(hostelId) {
+export async function assignGroupsToBatches(eventId) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // 1. Fetch all FORMING groups with their leader's rank for THIS HOSTEL ONLY
+        // 1. Fetch all FORMING groups for this event, ordered by leader rank
         const groupsRes = await client.query(
-            `SELECT hg.id, s.individual_rank AS leader_rank
+            `SELECT hg.id, leader.individual_rank AS leader_rank
              FROM housing_group hg
-             JOIN student s ON s.id = hg.primary_applicant_id
-             WHERE hg.status = 'FORMING' AND s.hostel_id = $1
-             ORDER BY s.individual_rank ASC NULLS LAST`,
-             [hostelId]
+             JOIN student leader ON leader.id = hg.primary_applicant_id
+             WHERE hg.status = 'FORMING'
+               AND hg.allocation_event_id = $1
+             ORDER BY leader.individual_rank ASC NULLS LAST`,
+            [eventId]
         );
 
         const groups = groupsRes.rows;
@@ -54,49 +59,49 @@ export async function assignGroupsToBatches(hostelId) {
             return { assigned: 0, unassigned: 0, batches: 0 };
         }
 
-        // 2. Fetch PENDING batches for this hostel, ordered by batch_number ASC
+        // 2. Fetch PENDING batches for this event, ordered by batch_number ASC
         const batchesRes = await client.query(
             `SELECT id, batch_number FROM batch
-             WHERE hostel_id = $1 AND status = 'PENDING'
+             WHERE allocation_event_id = $1 AND status = 'PENDING'
              ORDER BY batch_number ASC`,
-            [hostelId]
+            [eventId]
         );
 
         const batches = batchesRes.rows;
         if (batches.length === 0) {
+            // Auto-create batches if none exist
             const numBatches = Math.max(1, Math.ceil(groups.length / BATCH_SIZE));
-            console.log(`[softLock] Auto-creating ${numBatches} batches for hostel ${hostelId}.`);
-            
+            console.log(`[softLock] Auto-creating ${numBatches} batches for event ${eventId}.`);
+
             const batchDurationMinutes = Math.floor(BATCH_DURATION_MS / 60000);
-            const bufferMinutes = TEST_MODE ? 1 : 10; // short buffer before first batch
-            
+            const bufferMinutes = TEST_MODE ? 1 : 10;
+
             for (let i = 0; i < numBatches; i++) {
                 const startOffset = bufferMinutes + (i * batchDurationMinutes);
-                const endOffset = startOffset + batchDurationMinutes;
-                
+                const endOffset   = startOffset + batchDurationMinutes;
+
                 const newBatchRes = await client.query(
-                    `INSERT INTO batch (hostel_id, batch_number, status, start_time, end_time) 
-                     VALUES ($1, $2, 'PENDING', 
-                             NOW() + ($3 || ' minutes')::interval, 
-                             NOW() + ($4 || ' minutes')::interval) 
+                    `INSERT INTO batch (allocation_event_id, batch_number, status, start_time, end_time)
+                     VALUES ($1, $2, 'PENDING',
+                             NOW() + ($3 || ' minutes')::interval,
+                             NOW() + ($4 || ' minutes')::interval)
                      RETURNING id, batch_number`,
-                    [hostelId, i + 1, startOffset, endOffset]
+                    [eventId, i + 1, startOffset, endOffset]
                 );
                 batches.push(newBatchRes.rows[0]);
             }
         }
 
-        let assigned = 0;
+        let assigned   = 0;
         let unassigned = 0;
         let batchesUsed = 0;
 
         // 3. Assign groups in chunks of BATCH_SIZE to successive batches
         for (let i = 0; i < groups.length; i++) {
             const batchIndex = Math.floor(i / BATCH_SIZE);
-            const batch = batches[batchIndex];
+            const batch      = batches[batchIndex];
 
             if (!batch) {
-                // More groups than available batches
                 unassigned++;
                 console.warn(
                     `[softLock] Group ${groups[i].id} has no batch — ` +
@@ -107,8 +112,8 @@ export async function assignGroupsToBatches(hostelId) {
 
             await client.query(
                 `UPDATE housing_group
-                 SET status   = 'SOFT_LOCKED',
-                     batch_id = $1,
+                 SET status     = 'SOFT_LOCKED',
+                     batch_id   = $1,
                      group_rank = $3
                  WHERE id = $2
                    AND status = 'FORMING'`,
@@ -121,8 +126,8 @@ export async function assignGroupsToBatches(hostelId) {
 
         await client.query('COMMIT');
 
-        // Audit log — batch assignment by rank
-        await logBatchAssignment({ hostelId, assigned, unassigned, batches: batchesUsed });
+        // Audit log
+        await logBatchAssignment({ eventId, assigned, unassigned, batches: batchesUsed });
 
         console.log(
             `[softLock] Soft-locked ${assigned} groups into ${batchesUsed} batches ` +

@@ -73,53 +73,99 @@ CREATE TYPE room_type_enum AS ENUM (
 -- =========================================================
 -- 2. CORE INFRASTRUCTURE
 -- =========================================================
+
+-- hostel is now a pure physical entity.
+-- Phase/date/pause tracking moved to allocation_event.
 CREATE TABLE hostel (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) UNIQUE NOT NULL,
-    type VARCHAR(100),
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name           VARCHAR(255) UNIQUE NOT NULL,
+    type           VARCHAR(100),
     total_capacity INT DEFAULT 0,
-    current_phase system_phase_enum DEFAULT 'ADMIN_MODE',
-    is_paused BOOLEAN DEFAULT FALSE,
-    allocation_date TIMESTAMP WITH TIME ZONE,
-    lobby_opens_at TIMESTAMP WITH TIME ZONE,
-    -- From/To hostel mapping for cross-hostel allocation:
-    -- target_hostel_id: rooms from this hostel will be shown/allocated to students of THIS hostel
-    target_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
-    -- source_hostel_id: reverse link — students from this hostel are being allocated into THIS hostel
-    source_hostel_id UUID REFERENCES hostel(id) ON DELETE SET NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE admin (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(255) NOT NULL,
+    email           VARCHAR(255) UNIQUE NOT NULL,
+    password_hash   VARCHAR(255) NOT NULL,
     authority_level INTEGER NOT NULL CHECK (authority_level IN (1,2,3)),
-    hostel VARCHAR(255) REFERENCES hostel(name),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    hostel          VARCHAR(255) REFERENCES hostel(name),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE room (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE RESTRICT,
-    room_number VARCHAR(50) NOT NULL,
-    block VARCHAR(50) DEFAULT NULL,
-    room_type room_type_enum DEFAULT 'Student',
-    max_capacity INT NOT NULL CHECK (max_capacity IN (1,2,3,4,5,6)),
+    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    hostel_id         UUID NOT NULL REFERENCES hostel(id) ON DELETE RESTRICT,
+    room_number       VARCHAR(50) NOT NULL,
+    block             VARCHAR(50) DEFAULT NULL,
+    room_type         room_type_enum DEFAULT 'Student',
+    max_capacity      INT NOT NULL CHECK (max_capacity IN (1,2,3,4,5,6)),
     current_occupancy INT DEFAULT 0 CHECK (current_occupancy >= 0 AND current_occupancy <= max_capacity),
     UNIQUE(hostel_id, block, room_number)
 );
 
-CREATE TABLE batch (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE RESTRICT,
-    batch_number INT UNIQUE NOT NULL,
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    end_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    status batch_status_enum DEFAULT 'PENDING',
-    CHECK (end_time > start_time)
+
+-- =========================================================
+-- 2b. ALLOCATION EVENTS (Year-based allocation orchestration)
+-- =========================================================
+-- One allocation event per student year (e.g., target_year = 2 for 2nd-year students).
+-- Replaces per-hostel current_phase / allocation_date / lobby_opens_at / is_paused.
+-- Multiple hostel admins can contribute rooms to the same event via event_room_pool.
+CREATE TABLE allocation_event (
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    target_year      INT  NOT NULL,                            -- 2, 3, 4 …
+    allocation_date  TIMESTAMP WITH TIME ZONE,                 -- the Saturday allocation day
+    lobby_opens_at   TIMESTAMP WITH TIME ZONE,                 -- allocationDate − 5 days at 09:00 IST
+    status           system_phase_enum NOT NULL DEFAULT 'ADMIN_MODE',
+    is_paused        BOOLEAN DEFAULT FALSE,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+CREATE INDEX idx_event_year   ON allocation_event(target_year);
+CREATE INDEX idx_event_status ON allocation_event(status);
+
+-- Which hostels have opted into each allocation event.
+CREATE TABLE event_hostel_participation (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    allocation_event_id UUID NOT NULL REFERENCES allocation_event(id) ON DELETE CASCADE,
+    hostel_id           UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
+    joined_at           TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(allocation_event_id, hostel_id)
+);
+CREATE INDEX idx_ehp_event  ON event_hostel_participation(allocation_event_id);
+CREATE INDEX idx_ehp_hostel ON event_hostel_participation(hostel_id);
+
+-- Rooms contributed to an event by each hostel admin.
+-- Replaces the old allocation_room_pool table (which was source_hostel_id scoped).
+-- A room can only belong to ONE event at a time (UNIQUE on allocation_event_id, room_id).
+CREATE TABLE event_room_pool (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    allocation_event_id UUID NOT NULL REFERENCES allocation_event(id) ON DELETE CASCADE,
+    hostel_id           UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
+    room_id             UUID NOT NULL REFERENCES room(id) ON DELETE CASCADE,
+    added_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(allocation_event_id, room_id)
+);
+CREATE INDEX idx_erp_event  ON event_room_pool(allocation_event_id);
+CREATE INDEX idx_erp_hostel ON event_room_pool(hostel_id);
+CREATE INDEX idx_erp_room   ON event_room_pool(room_id);
+
+
+-- =========================================================
+-- 2c. BATCH (now event-scoped, not hostel-scoped)
+-- =========================================================
+CREATE TABLE batch (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    allocation_event_id UUID NOT NULL REFERENCES allocation_event(id) ON DELETE RESTRICT,
+    batch_number        INT NOT NULL,
+    start_time          TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_time            TIMESTAMP WITH TIME ZONE NOT NULL,
+    status              batch_status_enum DEFAULT 'PENDING',
+    CHECK (end_time > start_time),
+    UNIQUE(allocation_event_id, batch_number)
+);
+CREATE INDEX idx_batch_event ON batch(allocation_event_id);
 
 
 -- =========================================================
@@ -128,44 +174,46 @@ CREATE TABLE batch (
 
 -- Create student table first without the group_id foreign key
 CREATE TABLE student (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    father_name VARCHAR(255),
-    email VARCHAR(255) UNIQUE,
-    password VARCHAR(255),
-    hostel VARCHAR(255) NOT NULL,
-    hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
-    roll_no VARCHAR(100) UNIQUE,
-    phone VARCHAR(255),
-    parent_number VARCHAR(20),
-    category VARCHAR(50),
-    blood_group VARCHAR(10),
-    state VARCHAR(100),
-    address TEXT,
-    pincode VARCHAR(20),
-    department VARCHAR(255) NOT NULL,
-    cgpa NUMERIC(4,2),
-    joining_year INTEGER,
-    individual_rank INTEGER,
-    is_allotted BOOLEAN DEFAULT FALSE,
-    physical_room_id UUID REFERENCES room(id) ON DELETE SET NULL,
+    id               SERIAL PRIMARY KEY,
+    name             VARCHAR(255) NOT NULL,
+    father_name      VARCHAR(255),
+    email            VARCHAR(255) UNIQUE,
+    password         VARCHAR(255),
+    hostel           VARCHAR(255) NOT NULL,
+    hostel_id        UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
+    roll_no          VARCHAR(100) UNIQUE,
+    phone            VARCHAR(255),
+    parent_number    VARCHAR(20),
+    category         VARCHAR(50),
+    blood_group      VARCHAR(10),
+    state            VARCHAR(100),
+    address          TEXT,
+    pincode          VARCHAR(20),
+    department       VARCHAR(255) NOT NULL,
+    cgpa             NUMERIC(4,2),
+    joining_year     INTEGER,
+    current_year     INTEGER,                              -- academic year (2, 3, 4 …); updated yearly
+    individual_rank  INTEGER,
+    is_allotted      BOOLEAN DEFAULT FALSE,
+    physical_room_id  UUID REFERENCES room(id) ON DELETE SET NULL,
     allocated_room_id UUID REFERENCES room(id) ON DELETE SET NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (joining_year, individual_rank)
 );
 
 CREATE TABLE housing_group (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     primary_applicant_id INTEGER NOT NULL REFERENCES student(id),
-    group_rank INT,
-    batch_id UUID REFERENCES batch(id) ON DELETE SET NULL,
-    status group_status_enum DEFAULT 'FORMING',
-    rollover_count INT DEFAULT 0,
+    group_rank           INT,
+    batch_id             UUID REFERENCES batch(id) ON DELETE SET NULL,
+    allocation_event_id  UUID REFERENCES allocation_event(id) ON DELETE SET NULL,
+    status               group_status_enum DEFAULT 'FORMING',
+    rollover_count       INT DEFAULT 0,
     is_rollover_priority BOOLEAN DEFAULT FALSE
 );
 
 -- Now add the group_id linking back to the housing_group
-ALTER TABLE student 
+ALTER TABLE student
 ADD COLUMN group_id UUID REFERENCES housing_group(id) ON DELETE SET NULL;
 
 
@@ -174,23 +222,23 @@ ADD COLUMN group_id UUID REFERENCES housing_group(id) ON DELETE SET NULL;
 -- =========================================================
 
 CREATE TABLE group_request (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    group_id UUID NOT NULL REFERENCES housing_group(id) ON DELETE CASCADE,
-    student_id INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group_id     UUID NOT NULL REFERENCES housing_group(id) ON DELETE CASCADE,
+    student_id   INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
     request_type request_type_enum NOT NULL,
-    status request_status_enum DEFAULT 'PENDING',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    status       request_status_enum DEFAULT 'PENDING',
+    created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE allocation_submission (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    group_id UUID NOT NULL REFERENCES housing_group(id) ON DELETE CASCADE,
-    batch_id UUID NOT NULL REFERENCES batch(id) ON DELETE CASCADE,
-    submitted_by INTEGER NOT NULL REFERENCES student(id),
-    round_number INT NOT NULL CHECK (round_number >= 1 AND round_number <= 6),
-    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_processed BOOLEAN DEFAULT FALSE,
-    allocation_result allocation_result_enum DEFAULT 'PENDING',
+    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group_id             UUID NOT NULL REFERENCES housing_group(id) ON DELETE CASCADE,
+    batch_id             UUID NOT NULL REFERENCES batch(id) ON DELETE CASCADE,
+    submitted_by         INTEGER NOT NULL REFERENCES student(id),
+    round_number         INT NOT NULL CHECK (round_number >= 1 AND round_number <= 6),
+    submitted_at         TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_processed         BOOLEAN DEFAULT FALSE,
+    allocation_result    allocation_result_enum DEFAULT 'PENDING',
     effective_group_rank INT NOT NULL,
     effective_leader_rank INT NOT NULL,
     effective_group_size INT NOT NULL,
@@ -198,46 +246,26 @@ CREATE TABLE allocation_submission (
 );
 
 CREATE TABLE submission_preference (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    submission_id UUID NOT NULL REFERENCES allocation_submission(id) ON DELETE CASCADE,
-    room_id UUID NOT NULL REFERENCES room(id) ON DELETE CASCADE,
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    submission_id    UUID NOT NULL REFERENCES allocation_submission(id) ON DELETE CASCADE,
+    room_id          UUID NOT NULL REFERENCES room(id) ON DELETE CASCADE,
     preference_order INT NOT NULL CHECK (preference_order >= 1 AND preference_order <= 10),
     UNIQUE(submission_id, room_id),
     UNIQUE(submission_id, preference_order)
 );
 
 CREATE TABLE room_assignment (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    room_id UUID NOT NULL REFERENCES room(id) ON DELETE CASCADE,
-    student_id INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
-    assigned_by assigned_by_enum NOT NULL,
+    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    room_id           UUID NOT NULL REFERENCES room(id) ON DELETE CASCADE,
+    student_id        INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
+    assigned_by       assigned_by_enum NOT NULL,
     assignment_status assignment_status_enum DEFAULT 'UPCOMING',
-    valid_from DATE,
-    valid_until DATE,
-    ended_at TIMESTAMP WITH TIME ZONE,
-    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    valid_from        DATE,
+    valid_until       DATE,
+    ended_at          TIMESTAMP WITH TIME ZONE,
+    assigned_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
 );
-
--- ─── Allocation Room Pool ─────────────────────────────────────────────────────
--- Replaces the single target_hostel_id FK on the hostel table with a
--- granular, room-level pool that can span multiple TO hostels.
---
--- Design:
---   • source_hostel_id — the FROM hostel (whose students participate)
---   • room_id          — one room included in that hostel's pool
---   • Multiple FROM hostels may reference rooms from the same TO hostel
---     as long as they don't share the exact same rooms for the same cycle.
---   • target_hostel_id on hostel is KEPT for display / backward compat
---     but is no longer the engine's source of truth.
-CREATE TABLE allocation_room_pool (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    source_hostel_id UUID NOT NULL REFERENCES hostel(id) ON DELETE CASCADE,
-    room_id          UUID NOT NULL REFERENCES room(id)   ON DELETE CASCADE,
-    created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_hostel_id, room_id)
-);
-
 
 
 -- =========================================================
@@ -317,27 +345,25 @@ CREATE TABLE visit_log (
 -- =========================================================
 
 -- General Queries
-CREATE INDEX idx_student_hostel ON student(hostel_id);
-CREATE INDEX idx_outpass_student ON outpass(student_id);
-CREATE INDEX idx_outpass_status ON outpass(outp_status);
+CREATE INDEX idx_student_hostel    ON student(hostel_id);
+CREATE INDEX idx_outpass_student   ON outpass(student_id);
+CREATE INDEX idx_outpass_status    ON outpass(outp_status);
 CREATE INDEX idx_visit_log_student ON visit_log(student_id);
 CREATE INDEX idx_visit_log_outpass ON visit_log(outpass_id);
 CREATE INDEX idx_complaint_student ON complaint(student_id);
-CREATE INDEX idx_complaint_status ON complaint(status);
+CREATE INDEX idx_complaint_status  ON complaint(status);
 
 -- Room Allocation Engine Queries
 CREATE INDEX idx_student_individual_rank ON student(individual_rank);
-CREATE INDEX idx_housing_group_batch_id ON housing_group(batch_id);
+CREATE INDEX idx_student_year            ON student(current_year);
+CREATE INDEX idx_housing_group_batch_id  ON housing_group(batch_id);
+CREATE INDEX idx_housing_group_event     ON housing_group(allocation_event_id);
 CREATE INDEX idx_housing_group_group_rank ON housing_group(group_rank);
-CREATE INDEX idx_room_occupancy ON room(max_capacity, current_occupancy);
+CREATE INDEX idx_room_occupancy          ON room(max_capacity, current_occupancy);
 
--- Allocation Room Pool
-CREATE INDEX idx_arp_source ON allocation_room_pool(source_hostel_id);
-CREATE INDEX idx_arp_room   ON allocation_room_pool(room_id);
-
-CREATE UNIQUE INDEX idx_unique_active_assignment ON room_assignment(student_id) WHERE assignment_status = 'ACTIVE';
+CREATE UNIQUE INDEX idx_unique_active_assignment   ON room_assignment(student_id) WHERE assignment_status = 'ACTIVE';
 CREATE UNIQUE INDEX idx_unique_upcoming_assignment ON room_assignment(student_id) WHERE assignment_status = 'UPCOMING';
-CREATE UNIQUE INDEX idx_unique_active_request ON group_request(group_id, student_id) WHERE status IN ('PENDING', 'ACCEPTED');
+CREATE UNIQUE INDEX idx_unique_active_request      ON group_request(group_id, student_id) WHERE status IN ('PENDING', 'ACCEPTED');
 
 -- =========================================================
 -- 10. VIEWS
@@ -369,7 +395,7 @@ BEGIN
         -- Lock the row to prevent race conditions during insertion
         PERFORM 1 FROM housing_group WHERE id = NEW.group_id FOR UPDATE;
 
-        SELECT COUNT(*)
+        SELECT COUNT()
         INTO v_count
         FROM student
         WHERE group_id = NEW.group_id AND id <> NEW.id;
@@ -514,9 +540,9 @@ BEGIN
 
     -- Update the fast-read columns in the student table
     UPDATE student
-    SET physical_room_id = v_active_room,
+    SET physical_room_id  = v_active_room,
         allocated_room_id = v_upcoming_room,
-        is_allotted = (v_active_room IS NOT NULL OR v_upcoming_room IS NOT NULL)
+        is_allotted       = (v_active_room IS NOT NULL OR v_upcoming_room IS NOT NULL)
     WHERE id = v_student_id;
 
     RETURN NULL;
@@ -576,7 +602,7 @@ CREATE OR REPLACE FUNCTION validate_submission_window()
 RETURNS TRIGGER AS $$
 DECLARE
     v_start TIMESTAMP WITH TIME ZONE;
-    v_end TIMESTAMP WITH TIME ZONE;
+    v_end   TIMESTAMP WITH TIME ZONE;
 BEGIN
     SELECT start_time, end_time
     INTO v_start, v_end
