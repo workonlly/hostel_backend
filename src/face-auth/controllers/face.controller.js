@@ -1,12 +1,17 @@
 import asyncHandler from "../../utils/asyncHandler.js";
-import ApiError from "../../utils/ApiError.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 
 import faceService from "../services/face.service.js";
 
+/*
+=====================================================
+STUDENT
+=====================================================
+*/
+
 export const enrollFace = asyncHandler(async (req, res) => {
     const result = await faceService.enrollStudentFaces(
-        req.params.studentId,
+        req.user.id,
         req.files
     );
 
@@ -14,26 +19,29 @@ export const enrollFace = asyncHandler(async (req, res) => {
         new ApiResponse(
             201,
             result,
-            "Face enrollment completed successfully."
+            "Face enrolled successfully."
         )
     );
 });
 
-export const verifyFace = asyncHandler(async (req, res) => {
-    const result = await faceService.verifyStudentFace(req.file);
+export const reEnrollFace = asyncHandler(async (req, res) => {
+    const result = await faceService.reEnrollStudentFaces(
+        req.user.id,
+        req.files
+    );
 
     return res.status(200).json(
         new ApiResponse(
             200,
             result,
-            "Face verified successfully."
+            "Face re-enrolled successfully."
         )
     );
 });
 
 export const deleteFace = asyncHandler(async (req, res) => {
-    const result = await faceService.deleteStudentFace(
-        req.params.faceId
+    const result = await faceService.deleteStudentFaces(
+        req.user.id
     );
 
     return res.status(200).json(
@@ -45,6 +53,32 @@ export const deleteFace = asyncHandler(async (req, res) => {
     );
 });
 
+/*
+=====================================================
+GUARD
+=====================================================
+*/
+
+export const verifyFace = asyncHandler(async (req, res) => {
+    const result = await faceService.verifyStudentFace(
+        req.file
+    );
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            result,
+            "Face verified successfully."
+        )
+    );
+});
+
+/*
+=====================================================
+HEALTH
+=====================================================
+*/
+
 export const healthCheck = asyncHandler(async (req, res) => {
     const result = await faceService.healthCheck();
 
@@ -53,6 +87,18 @@ export const healthCheck = asyncHandler(async (req, res) => {
             200,
             result,
             "Face authentication service is healthy."
+        )
+    );
+});
+
+export const readyCheck = asyncHandler(async (req, res) => {
+    const result = await faceService.readyCheck();
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            result,
+            "Face authentication service is ready."
         )
     );
 });

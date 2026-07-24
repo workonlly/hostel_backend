@@ -18,21 +18,27 @@ import importRoutes from "./imports/import.routes.js";
 
 import outpassRoutes from "./routes/outpass.routes.js";
 import studentRoutes from "./routes/student.routes.js";
-import complaintRoutes from "../working-routes/complaint.js";
+
+// Working Routes
 import authRoutes from "../working-routes/auth.js";
-import complaintRoutesWorking from "../working-routes/complaint.js";
+import complaintRoutes from "../working-routes/complaint.js";
 import outpassRoutesWorking from "../working-routes/outpass.js";
+
+// Face Authentication Routes
+import faceAuthRoutes from "./face-auth/routes/face.routes.js";
 
 const app = express();
 
 /*
+=====================================================
 GLOBAL MIDDLEWARES
+=====================================================
 */
 
 app.use(
     cors({
         origin: true,
-        credentials: true
+        credentials: true,
     })
 );
 
@@ -40,105 +46,91 @@ app.use(express.json());
 
 app.use(
     express.urlencoded({
-        extended: true
+        extended: true,
     })
 );
 
 app.use(cookieParser());
 
 /*
+=====================================================
 REQUEST LOGGER
+=====================================================
 */
 
 app.use((req, res, next) => {
-
-    console.log(
-        `${req.method} ${req.originalUrl}`
-    );
-
+    console.log(`${req.method} ${req.originalUrl}`);
     next();
 });
 
 /*
+=====================================================
 HEALTH CHECK ROUTES
+=====================================================
 */
 
 // Root Route
 app.get("/", (req, res) => {
-
     return res.status(200).json({
         success: true,
-        message:
-            "Hostel Backend Running Successfully"
+        message: "Hostel Backend Running Successfully",
     });
 });
 
 // Debug Route
 app.post("/debug", (req, res) => {
-
     console.log("BODY:", req.body);
 
     return res.status(200).json({
         success: true,
-        body: req.body
+        body: req.body,
     });
 });
 
+// Database Test Route
 app.get("/test-db", async (req, res) => {
-
     try {
         const result = await pool.query("SELECT NOW()");
+
         return res.status(200).json({
             success: true,
-            message:
-                "Database connected successfully",
-            data: result.rows[0]
+            message: "Database connected successfully",
+            data: result.rows[0],
         });
     } catch (error) {
         return res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message,
         });
     }
 });
 
 /*
+=====================================================
 API ROUTES
+=====================================================
 */
 
-// Auth Routes
-app.use(
-    "/api/auth",
-    authRoutes
-);
+// Authentication
+app.use("/api/auth", authRoutes);
 
-// Working Complaint and Outpass Routes
-app.use("/complaint", complaintRoutesWorking);
+// Working Routes
+app.use("/complaint", complaintRoutes);
 app.use("/outpass", outpassRoutesWorking);
 
-// Outpass Routes
-app.use(
-    "/api/outpasses",
-    outpassRoutes
-);
+// Outpass
+app.use("/api/outpasses", outpassRoutes);
 
-// Complaint Routes
-app.use(
-    "/api/complaints",
-    complaintRoutes
-);
+// Complaints
+app.use("/api/complaints", complaintRoutes);
 
-// Student Routes
-app.use(
-    "/api/students",
-    studentRoutes
-);
+// Students
+app.use("/api/students", studentRoutes);
 
-// Face Authentication Routes
-import faceAuthRoutes from "./face-auth/face-auth.routes.js";
+// Face Authentication
 app.use("/api/face-auth", faceAuthRoutes);
 
-// === Our Room Allocation Routes ===
+// === Room Allocation ===
 app.use("/api/groups", groupRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/hostels", hostelRoutes);
@@ -152,34 +144,31 @@ app.use("/api/warden", wardenRoutes);
 app.use("/api/import", importRoutes);
 
 /*
-404 ROUTE HANDLER
+=====================================================
+404 HANDLER
+=====================================================
 */
 
 app.use((req, res) => {
-
     return res.status(404).json({
         success: false,
-        message: "Route not found"
+        message: "Route not found",
     });
 });
 
 /*
+=====================================================
 GLOBAL ERROR HANDLER
+=====================================================
 */
 
 app.use((err, req, res, next) => {
-
     console.error(err);
 
-    return res.status(
-        err.statusCode || 500
-    ).json({
+    return res.status(err.statusCode || 500).json({
         success: false,
-        message:
-            err.message ||
-            "Internal Server Error",
-        errors:
-            err.errors || []
+        message: err.message || "Internal Server Error",
+        errors: err.errors || [],
     });
 });
 

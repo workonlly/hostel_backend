@@ -12,6 +12,8 @@ class FaceService {
         this.MATCH_THRESHOLD = Number(
             process.env.ZEPIRIS_MATCH_THRESHOLD ?? 0.5
         );
+
+        this.MAX_FACE_IMAGES = 5;
     }
 
     mapZepirisError(error) {
@@ -22,7 +24,9 @@ class FaceService {
         const response = error?.response;
         const data = response?.data;
 
-        // ZepIris IQA Failure (422)
+        // -------------------------------
+        // Image Quality Validation Errors
+        // -------------------------------
         if (
             response?.status === 422 &&
             data?.detail?.message === "image_quality_check_failed"
@@ -39,7 +43,7 @@ class FaceService {
             if (!assessment.spoof?.is_live) {
                 throw new ApiError(
                     422,
-                    "Spoof image detected. Please upload a live face."
+                    "Spoof image detected. Please use a live face."
                 );
             }
 
@@ -52,14 +56,33 @@ class FaceService {
 
             throw new ApiError(
                 422,
-                "Image quality check failed."
+                "Image quality validation failed."
             );
         }
 
-        if (error?.cause?.code === "ECONNREFUSED") {
+        // -------------------------------
+        // Service unavailable
+        // -------------------------------
+        if (
+            error?.cause?.code === "ECONNREFUSED" ||
+            response?.status === 503
+        ) {
             throw new ApiError(
                 503,
                 "Face authentication service is currently unavailable."
+            );
+        }
+
+        // -------------------------------
+        // Timeout
+        // -------------------------------
+        if (
+            error?.name === "AbortError" ||
+            error?.code === "ETIMEDOUT"
+        ) {
+            throw new ApiError(
+                504,
+                "Face authentication service timed out."
             );
         }
 
@@ -68,8 +91,11 @@ class FaceService {
             "Unable to communicate with face authentication service."
         );
     }
+        async cleanupEnrolledFaces(faceIds = []) {
+        if (!faceIds.length) {
+            return;
+        }
 
-    async cleanupEnrolledFaces(faceIds) {
         for (const faceId of faceIds) {
             try {
                 await zepirisService.deleteFace(faceId);
@@ -79,11 +105,30 @@ class FaceService {
         }
     }
 
-    async enrollStudentFaces(studentId, files) {
-        if (!studentId) {
-            throw new ApiError(400, "Student ID is required.");
+    async getStudentForEnrollment(client, studentId) {
+        const result = await client.query(
+            `
+            SELECT
+                id,
+                face_enrolled
+            FROM student
+            WHERE id = $1
+            FOR UPDATE
+            `,
+            [studentId]
+        );
+
+        if (result.rowCount === 0) {
+            throw new ApiError(
+                404,
+                "Student not found."
+            );
         }
 
+        return result.rows[0];
+    }
+
+    validateEnrollmentFiles(files) {
         if (!files || files.length === 0) {
             throw new ApiError(
                 400,
@@ -91,35 +136,32 @@ class FaceService {
             );
         }
 
-        if (files.length > 5) {
+        if (files.length > this.MAX_FACE_IMAGES) {
             throw new ApiError(
                 400,
-                "Maximum 5 face images are allowed."
+                `Maximum ${this.MAX_FACE_IMAGES} face images are allowed.`
             );
         }
+    }
+        async enrollStudentFaces(studentId, files) {
+        if (!studentId) {
+            throw new ApiError(400, "Student ID is required.");
+        }
+
+        this.validateEnrollmentFiles(files);
 
         const client = await pool.connect();
+
+        // Used for cleanup if transaction fails
         const enrolledFaceIds = [];
 
         try {
             await client.query("BEGIN");
 
-            // Lock student row to avoid concurrent enrollment
-            const studentResult = await client.query(
-                `
-                SELECT id, face_enrolled
-                FROM student
-                WHERE id = $1
-                FOR UPDATE
-                `,
-                [studentId]
+            const student = await this.getStudentForEnrollment(
+                client,
+                studentId
             );
-
-            if (studentResult.rowCount === 0) {
-                throw new ApiError(404, "Student not found.");
-            }
-
-            const student = studentResult.rows[0];
 
             if (student.face_enrolled) {
                 throw new ApiError(
@@ -135,10 +177,10 @@ class FaceService {
 
                 const faceId = randomUUID();
 
-                let zepirisResponse;
+                let enrollResponse;
 
                 try {
-                    zepirisResponse =
+                    enrollResponse =
                         await zepirisService.enrollFace({
                             faceId,
                             file,
@@ -169,8 +211,8 @@ class FaceService {
                 enrolledFaces.push({
                     faceId,
                     photoIndex: i + 1,
-                    imageQuality:
-                        zepirisResponse.imageQualityAssessment,
+                    imageQualityAssessment:
+                        enrollResponse.imageQualityAssessment,
                 });
             }
 
@@ -187,15 +229,22 @@ class FaceService {
 
             return {
                 success: true,
+                message: "Face enrolled successfully.",
+
                 studentId,
+
                 enrolledCount: enrolledFaces.length,
+
                 faces: enrolledFaces,
             };
         } catch (error) {
             await client.query("ROLLBACK");
 
+            // Remove already enrolled faces from ZepIris
             if (enrolledFaceIds.length) {
-                await this.cleanupEnrolledFaces(enrolledFaceIds);
+                await this.cleanupEnrolledFaces(
+                    enrolledFaceIds
+                );
             }
 
             throw error;
@@ -203,22 +252,108 @@ class FaceService {
             client.release();
         }
     }
+        async removeStudentFaces(client, studentId) {
+        const mappingResult = await client.query(
+            `
+            SELECT zepiris_face_id
+            FROM student_face_enrollment
+            WHERE student_id = $1
+            `,
+            [studentId]
+        );
+
+        const faceIds = mappingResult.rows.map(
+            (row) => row.zepiris_face_id
+        );
+
+        // Delete from ZepIris
+        for (const faceId of faceIds) {
+            try {
+                await zepirisService.deleteFace(faceId);
+            } catch (error) {
+                this.mapZepirisError(error);
+            }
+        }
+
+        // Delete mappings
+        await client.query(
+            `
+            DELETE FROM student_face_enrollment
+            WHERE student_id = $1
+            `,
+            [studentId]
+        );
+
+        await client.query(
+            `
+            UPDATE student
+            SET face_enrolled = FALSE
+            WHERE id = $1
+            `,
+            [studentId]
+        );
+
+        return faceIds.length;
+    }
+        async reEnrollStudentFaces(studentId, files) {
+        if (!studentId) {
+            throw new ApiError(400, "Student ID is required.");
+        }
+
+        this.validateEnrollmentFiles(files);
+
+        const client = await pool.connect();
+
+        try {
+            await client.query("BEGIN");
+
+            const student = await this.getStudentForEnrollment(
+                client,
+                studentId
+            );
+
+            if (student.face_enrolled) {
+                await this.removeStudentFaces(
+                    client,
+                    studentId
+                );
+            }
+
+            await client.query("COMMIT");
+        } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+        } finally {
+            client.release();
+        }
+
+        // Fresh enrollment
+        return await this.enrollStudentFaces(
+            studentId,
+            files
+        );
+    }
         async verifyStudentFace(file) {
         if (!file) {
-            throw new ApiError(400, "Face image is required.");
+            throw new ApiError(
+                400,
+                "Face image is required."
+            );
         }
 
         let searchResult;
 
         try {
-            searchResult = await zepirisService.searchFace({
-                file,
-            });
+            searchResult =
+                await zepirisService.searchFace({
+                    file,
+                });
         } catch (error) {
             this.mapZepirisError(error);
         }
 
-        const matches = searchResult.searchResult?.matches ?? [];
+        const matches =
+            searchResult.searchResult?.matches ?? [];
 
         if (matches.length === 0) {
             throw new ApiError(
@@ -227,10 +362,10 @@ class FaceService {
             );
         }
 
+        // Best match returned by ZepIris
         const bestMatch = matches[0];
 
-        // ZepIris uses cosine distance
-        // Lower score = Better match
+        // Lower cosine distance = Better match
         if (bestMatch.score > this.MATCH_THRESHOLD) {
             throw new ApiError(
                 401,
@@ -238,72 +373,49 @@ class FaceService {
             );
         }
 
-        const mappingResult = await pool.query(
+        const result = await pool.query(
             `
-            SELECT student_id
-            FROM student_face_enrollment
-            WHERE zepiris_face_id = $1
+            SELECT
+                s.id,
+                s.name,
+                s.roll_no,
+                s.email,
+                s.phone_no,
+                s.hostel_id,
+                s.face_enrolled,
+
+                o.id AS outpass_id,
+                o.destination,
+                o.reason,
+                o.departure_datetime,
+                o.parent_contact,
+                o.outp_status,
+                o.std_status
+
+            FROM student_face_enrollment sfe
+
+            JOIN student s
+            ON sfe.student_id = s.id
+
+            LEFT JOIN outpass o
+            ON
+                o.student_id = s.id
+                AND o.is_active = TRUE
+                AND o.outp_status = 'Approved'
+
+            WHERE sfe.zepiris_face_id = $1
             `,
             [bestMatch.id]
         );
 
-        if (mappingResult.rowCount === 0) {
+        if (result.rowCount === 0) {
             throw new ApiError(
                 404,
                 "Matched face is not linked to any student."
             );
         }
 
-        const studentId = mappingResult.rows[0].student_id;
-
-        const studentResult = await pool.query(
-            `
-            SELECT
-                id,
-                name,
-                roll_no,
-                hostel_id,
-                email,
-                phone_no,
-                face_enrolled
-            FROM student
-            WHERE id = $1
-            `,
-            [studentId]
-        );
-
-        if (studentResult.rowCount === 0) {
-            throw new ApiError(
-                404,
-                "Student record not found."
-            );
-        }
-
-        const outpassResult = await pool.query(
-            `
-            SELECT
-                id,
-                outp_status,
-                departure_datetime,
-                destination,
-                reason,
-                std_status,
-                parent_contact
-            FROM outpass
-            WHERE
-                student_id = $1
-                AND is_active = TRUE
-                AND outp_status = 'Approved'
-            `,
-            [studentId]
-        );
-
-        if (outpassResult.rowCount > 1) {
-            throw new ApiError(
-                500,
-                "Multiple active outpasses found for this student."
-            );
-        }
+        const row = result.rows[0];
 
         return {
             matched: true,
@@ -315,20 +427,42 @@ class FaceService {
             imageQualityAssessment:
                 searchResult.imageQualityAssessment,
 
-            student: studentResult.rows[0],
+            student: {
+                id: row.id,
+                name: row.name,
+                roll_no: row.roll_no,
+                email: row.email,
+                phone_no: row.phone_no,
+                hostel_id: row.hostel_id,
+                face_enrolled: row.face_enrolled,
+            },
 
-            outpass:
-                outpassResult.rowCount === 1
-                    ? outpassResult.rows[0]
-                    : null,
+            outpass: row.outpass_id
+                ? {
+                      id: row.outpass_id,
+                      destination: row.destination,
+                      reason: row.reason,
+                      departure_datetime:
+                          row.departure_datetime,
+                      parent_contact:
+                          row.parent_contact,
+                      outp_status:
+                          row.outp_status,
+                      std_status:
+                          row.std_status,
+                  }
+                : null,
 
             hasActiveOutpass:
-                outpassResult.rowCount === 1,
+                row.outpass_id !== null,
         };
     }
-        async deleteStudentFace(faceId) {
-        if (!faceId) {
-            throw new ApiError(400, "Face ID is required.");
+        async deleteStudentFaces(studentId) {
+        if (!studentId) {
+            throw new ApiError(
+                400,
+                "Student ID is required."
+            );
         }
 
         const client = await pool.connect();
@@ -336,71 +470,29 @@ class FaceService {
         try {
             await client.query("BEGIN");
 
-            // Check mapping exists
-            const mappingResult = await client.query(
-                `
-                SELECT
-                    student_id,
-                    zepiris_face_id
-                FROM student_face_enrollment
-                WHERE zepiris_face_id = $1
-                FOR UPDATE
-                `,
-                [faceId]
+            const student = await this.getStudentForEnrollment(
+                client,
+                studentId
             );
 
-            if (mappingResult.rowCount === 0) {
+            if (!student.face_enrolled) {
                 throw new ApiError(
                     404,
-                    "Face record not found."
+                    "No enrolled face found for this student."
                 );
             }
 
-            const { student_id } = mappingResult.rows[0];
-
-            // Delete from ZepIris
-            try {
-                await zepirisService.deleteFace(faceId);
-            } catch (error) {
-                this.mapZepirisError(error);
-            }
-
-            // Delete mapping
-            await client.query(
-                `
-                DELETE FROM student_face_enrollment
-                WHERE zepiris_face_id = $1
-                `,
-                [faceId]
+            const deletedFaces = await this.removeStudentFaces(
+                client,
+                studentId
             );
-
-            // Check if student still has enrolled faces
-            const remainingFaces = await client.query(
-                `
-                SELECT COUNT(*)::INTEGER AS total
-                FROM student_face_enrollment
-                WHERE student_id = $1
-                `,
-                [student_id]
-            );
-
-            if (remainingFaces.rows[0].total === 0) {
-                await client.query(
-                    `
-                    UPDATE student
-                    SET face_enrolled = FALSE
-                    WHERE id = $1
-                    `,
-                    [student_id]
-                );
-            }
 
             await client.query("COMMIT");
 
             return {
                 success: true,
-                deletedFaceId: faceId,
-                remainingFaces: remainingFaces.rows[0].total,
+                message: "Face enrollment deleted successfully.",
+                deletedFaces,
             };
         } catch (error) {
             await client.query("ROLLBACK");
@@ -413,6 +505,14 @@ class FaceService {
     async healthCheck() {
         try {
             return await zepirisService.healthCheck();
+        } catch (error) {
+            this.mapZepirisError(error);
+        }
+    }
+
+    async readyCheck() {
+        try {
+            return await zepirisService.readyCheck();
         } catch (error) {
             this.mapZepirisError(error);
         }
