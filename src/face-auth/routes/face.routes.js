@@ -6,6 +6,7 @@ import authorizeRoles from "../../middleware/authorizeRoles.js";
 import upload from "../middleware/upload.middleware.js";
 
 import {
+    validateFace,
     enrollFace,
     reEnrollFace,
     verifyFace,
@@ -41,6 +42,15 @@ router.get(
 STUDENT ROUTES
 =====================================================
 */
+
+// Validate a single image quality (blur/spoof/NSFW) — no DB write
+router.post(
+    "/validate",
+    auth,
+    authorizeRoles("STUDENT"),
+    upload.single("photo"),
+    validateFace
+);
 
 // Enroll face
 router.post(
@@ -78,7 +88,7 @@ GUARD ROUTES
 router.post(
     "/verify",
     auth,
-    authorizeRoles("GUARD"),
+    authorizeRoles("GUARD", "STUDENT"), // Added STUDENT for development testing
     upload.single("capture"),
     verifyFace
 );

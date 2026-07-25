@@ -197,8 +197,18 @@ CREATE TABLE student (
     is_allotted      BOOLEAN DEFAULT FALSE,
     physical_room_id  UUID REFERENCES room(id) ON DELETE SET NULL,
     allocated_room_id UUID REFERENCES room(id) ON DELETE SET NULL,
+    face_enrolled    BOOLEAN DEFAULT FALSE,
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (joining_year, individual_rank)
+);
+
+CREATE TABLE student_face_enrollment (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES student(id) ON DELETE CASCADE,
+    zepiris_face_id VARCHAR(128) UNIQUE NOT NULL,
+    photo_index SMALLINT NOT NULL CHECK (photo_index BETWEEN 1 AND 5),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, photo_index)
 );
 
 CREATE TABLE housing_group (
@@ -300,6 +310,7 @@ CREATE TABLE complaint (
     title VARCHAR(255) NOT NULL DEFAULT 'Untitled',
     description TEXT NOT NULL,
     hostel VARCHAR(255) NOT NULL,
+    type VARCHAR(255) NOT NULL,
     status VARCHAR(255) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'resolved')),
     date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_by INTEGER NULL REFERENCES attendent(id) ON DELETE SET NULL,

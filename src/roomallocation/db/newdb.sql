@@ -304,6 +304,7 @@ CREATE TABLE complaint (
     date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_by INTEGER NULL REFERENCES attendent(id) ON DELETE SET NULL,
     resolved_at TIMESTAMP NULL,
+    type VARCHAR(255) NOT NULL,
     resolved_description TEXT NULL,
     upvotes INTEGER DEFAULT 0
 );

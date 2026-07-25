@@ -143,6 +143,71 @@ class FaceService {
             );
         }
     }
+    /**
+     * Validate a single image for quality (blur / spoof / NSFW) without enrolling.
+     * Returns the imageQualityAssessment from ZepIris so the frontend can show
+     * per-slot live feedback before the student submits all 5 photos.
+     */
+    async validateImageQuality(file) {
+        if (!file) {
+            throw new ApiError(400, "Image is required.");
+        }
+
+        // Use a temporary ephemeral ID — we delete it immediately after getting the assessment
+        const { randomUUID } = await import("crypto");
+        const tempId = `validate_${randomUUID()}`;
+
+        console.log(`\n[FaceAuth] 📷 Validating image quality (temp id: ${tempId})...`);
+
+        let enrollResponse;
+        try {
+            enrollResponse = await zepirisService.enrollFace({ faceId: tempId, file });
+        } catch (error) {
+            // For validation, we re-map quality errors into structured feedback
+            // instead of throwing — so the frontend receives usable field data.
+            const response = error?.response;
+            const data     = response?.data;
+
+            if (
+                response?.status === 422 &&
+                data?.detail?.message === "image_quality_check_failed"
+            ) {
+                const reason = this._describeQualityFailure(data.detail.imageQualityAssessment);
+                console.log(`[FaceAuth] ❌ Validation rejected: ${reason}`);
+                return {
+                    valid: false,
+                    imageQualityAssessment: data.detail.imageQualityAssessment ?? {},
+                    reason,
+                };
+            }
+
+            this.mapZepirisError(error);
+        }
+
+        // Clean up the temp face immediately — we only wanted the quality assessment
+        console.log(`[FaceAuth] 🗑️  Cleaning up temporary validation face: ${tempId}`);
+        try {
+            await zepirisService.deleteFace(tempId);
+        } catch (_) {
+            // Best-effort cleanup
+        }
+
+        console.log(`[FaceAuth] ✅ Image validation passed!`);
+        return {
+            valid: true,
+            imageQualityAssessment: enrollResponse?.imageQualityAssessment ?? {},
+            reason: null,
+        };
+    }
+
+    _describeQualityFailure(assessment) {
+        if (!assessment) return "Image quality validation failed.";
+        if (assessment.blur  && !assessment.blur.is_sharp)  return "Image is blurry. Please use a sharper photo.";
+        if (assessment.spoof && !assessment.spoof.is_live)  return "Spoof detected. Please use a live, real face photo.";
+        if (assessment.nsfw  && !assessment.nsfw.is_safe)   return "Image failed safety check. Please use an appropriate photo.";
+        return "Image quality validation failed.";
+    }
+
         async enrollStudentFaces(studentId, files) {
         if (!studentId) {
             throw new ApiError(400, "Student ID is required.");
@@ -170,12 +235,15 @@ class FaceService {
                 );
             }
 
+            console.log(`\n[FaceAuth] 🚀 Enrolling ${files.length} images for student ${studentId}...`);
+
             const enrolledFaces = [];
 
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
 
                 const faceId = randomUUID();
+                console.log(`[FaceAuth] ⬆️ Uploading image ${i + 1}/${files.length} (id: ${faceId})...`);
 
                 let enrollResponse;
 
@@ -214,8 +282,11 @@ class FaceService {
                     imageQualityAssessment:
                         enrollResponse.imageQualityAssessment,
                 });
+                
+                console.log(`[FaceAuth] ✅ Image ${i + 1} enrolled successfully.`);
             }
 
+            console.log(`[FaceAuth] 🔄 Updating student record to enrolled...`);
             await client.query(
                 `
                 UPDATE student
@@ -238,6 +309,7 @@ class FaceService {
                 faces: enrolledFaces,
             };
         } catch (error) {
+            console.error(`[FaceAuth] ❌ Enrollment failed: ${error.message}`);
             await client.query("ROLLBACK");
 
             // Remove already enrolled faces from ZepIris
@@ -380,13 +452,13 @@ class FaceService {
                 s.name,
                 s.roll_no,
                 s.email,
-                s.phone_no,
+                s.phone,
                 s.hostel_id,
                 s.face_enrolled,
 
                 o.id AS outpass_id,
-                o.destination,
-                o.reason,
+                o.place_of_visit,
+                o.purpose,
                 o.departure_datetime,
                 o.parent_contact,
                 o.outp_status,
@@ -432,7 +504,7 @@ class FaceService {
                 name: row.name,
                 roll_no: row.roll_no,
                 email: row.email,
-                phone_no: row.phone_no,
+                phone: row.phone,
                 hostel_id: row.hostel_id,
                 face_enrolled: row.face_enrolled,
             },
@@ -440,8 +512,8 @@ class FaceService {
             outpass: row.outpass_id
                 ? {
                       id: row.outpass_id,
-                      destination: row.destination,
-                      reason: row.reason,
+                      destination: row.place_of_visit,
+                      reason: row.purpose,
                       departure_datetime:
                           row.departure_datetime,
                       parent_contact:

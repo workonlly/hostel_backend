@@ -1,10 +1,15 @@
+import { Mutex } from "../../utils/Mutex.js";
+
 const BASE_URL = process.env.ZEPIRIS_BASE_URL;
 const TENANT = process.env.ZEPIRIS_TENANT;
+const zepirisMutex = new Mutex();
 
 class ZepirisService {
     async request(endpoint, options = {}) {
+        await zepirisMutex.lock();
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
+        // Increase timeout to 30s just in case, since they are queued now
+        const timeout = setTimeout(() => controller.abort(), 30000);
 
         try {
             const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -47,6 +52,7 @@ class ZepirisService {
             throw error;
         } finally {
             clearTimeout(timeout);
+            zepirisMutex.unlock();
         }
     }
 

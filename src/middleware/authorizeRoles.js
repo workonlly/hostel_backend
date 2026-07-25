@@ -7,7 +7,10 @@ const authorizeRoles = (...allowedRoles) => {
             });
         }
 
-        if (!allowedRoles.includes(req.user.role)) {
+        const userRole = req.user.role ? req.user.role.toUpperCase() : "";
+        const allowedRolesUpper = allowedRoles.map(r => r.toUpperCase());
+
+        if (!allowedRolesUpper.includes(userRole)) {
             return res.status(403).json({
                 success: false,
                 message: "Forbidden",

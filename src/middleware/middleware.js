@@ -25,15 +25,10 @@ const auth = (req, res, next) => {
         );
 
         req.user = decoded;
-
-        next();
-
-    } catch {
-
-        return res.status(401).json({
-            message: "Invalid token"
-        });
-
+        return next();
+    } catch (err) {
+        console.error(`[Auth] Token verification failed: ${err.message}`);
+        return res.status(401).json({ message: 'Invalid token' });
     }
 };
 

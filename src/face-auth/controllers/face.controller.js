@@ -9,6 +9,20 @@ STUDENT
 =====================================================
 */
 
+export const validateFace = asyncHandler(async (req, res) => {
+    const result = await faceService.validateImageQuality(req.file);
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            result,
+            result.valid
+                ? "Image passed quality checks."
+                : "Image failed quality checks."
+        )
+    );
+});
+
 export const enrollFace = asyncHandler(async (req, res) => {
     const result = await faceService.enrollStudentFaces(
         req.user.id,
