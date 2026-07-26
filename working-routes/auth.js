@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 import pool from '../src/db/pool.js';
 import auth from '../src/middleware/middleware.js';
 import dotenv from 'dotenv';
+import { generateOtp } from './generateOtp.js';
+import { storeOtp, verifyOtp } from './otpStore.js';
 
 dotenv.config();
 
@@ -71,9 +73,7 @@ router.get('/login', (req, res) => {
 // ======================================================
 
 router.post('/login', async (req, res) => {
-   
-
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
     if (!email || !password) {
         return res.status(400).json({
@@ -132,24 +132,21 @@ router.post('/login', async (req, res) => {
         });
             }
 
-            const token = jwt.sign(
-                {
-                    id: admin.id,
-                    email: admin.email,
-                    role,
-                    authority_level: admin.authority_level
-                },
-                process.env.JWT_SECRET,
-                {
-                    expiresIn: "1h"
-                }
-            );
+            const otp = generateOtp();
+            const otpPayload = {
+                id: admin.id,
+                email: admin.email,
+                role,
+                authority_level: admin.authority_level,
+                user: admin,
+            };
+
+            storeOtp(admin.email, otp, otpPayload);
+            console.log(`OTP for ${admin.email}: ${otp}`);
 
             return res.status(200).json({
-                message: "Login successful",
-                user: admin,
-                token,
-                role
+                success: true,
+                message: "OTP generated"
             });
         }
         // ======================================================
@@ -180,23 +177,20 @@ if (guardResult.rows.length > 0) {
     });
   }
 
-  const token = jwt.sign(
-    {
-      id: guard.id,
-      email: guard.email,
-      role: "guard",
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: "1h",
-    }
-  );
+  const otp = generateOtp();
+  const otpPayload = {
+    id: guard.id,
+    email: guard.email,
+    role: "guard",
+    user: guard,
+  };
+
+  storeOtp(guard.email, otp, otpPayload);
+  console.log(`OTP for ${guard.email}: ${otp}`);
 
   return res.status(200).json({
-    message: "Login successful",
-    user: guard,
-    token,
-    role: "guard",
+    success: true,
+    message: "OTP generated",
   });
 }
         // ======================================================
@@ -233,23 +227,20 @@ if (guardResult.rows.length > 0) {
             });
         }
 
-        const token = jwt.sign(
-            {
-                id: user.id,
-                email: user.email,
-                role: "student"
-            },
-            process.env.JWT_SECRET,
-            {
-                expiresIn: "1h"
-            }
-        );
+        const otp = generateOtp();
+        const otpPayload = {
+            id: user.id,
+            email: user.email,
+            role: "student",
+            user,
+        };
+
+        storeOtp(user.email, otp, otpPayload);
+        console.log(`OTP for ${user.email}: ${otp}`);
 
         return res.status(200).json({
-            message: "Login successful",
-            user,
-            token,
-            role: "student"
+            success: true,
+            message: "OTP generated"
         });
 
     } catch (err) {
@@ -265,6 +256,45 @@ if (guardResult.rows.length > 0) {
     }
 });
 
+router.post('/verify-otp', async (req, res) => {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+        return res.status(400).json({
+            message: 'Email and OTP are required'
+        });
+    }
+
+    const result = verifyOtp(email, otp);
+
+    if (!result || !result.valid) {
+        return res.status(401).json({
+            message: 'Invalid or expired OTP'
+        });
+    }
+
+    const payload = result.payload;
+
+    const token = jwt.sign(
+        {
+            id: payload.id,
+            email: payload.email,
+            role: payload.role,
+            authority_level: payload.authority_level,
+        },
+        process.env.JWT_SECRET,
+        {
+            expiresIn: '1h'
+        }
+    );
+
+    return res.status(200).json({
+        message: 'Login successful',
+        user: payload.user,
+        token,
+        role: payload.role
+    });
+});
 
 // ======================================================
 // CURRENT USER
