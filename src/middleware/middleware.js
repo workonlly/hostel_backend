@@ -15,17 +15,7 @@ const auth = async (req, res, next) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        const roleGroups = {
-            student: ['student'],
-            attendant: ['attendant', 'admin'],
-            guard: ['guard'],
-            warden: ['warden', 'admin'],
-            'chief-warden': ['chief-warden', 'warden', 'admin']
-        };
-
-        const acceptedRoles = roleGroups[decoded.role] || [decoded.role];
-
-        if (!acceptedRoles.includes(role)) {
+        if (decoded.role !== role) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
