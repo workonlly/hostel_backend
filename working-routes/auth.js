@@ -4,143 +4,17 @@ import bcrypt from 'bcryptjs';
 import pool from '../src/db/pool.js';
 import auth from '../src/middleware/middleware.js';
 import dotenv from 'dotenv';
-import { generateOtp, storeOtp, verifyOtp } from '../src/utils/otp.js';
-
-const DEPARTMENT_PREFIXES = {
-    CSE: 'BCS',
-    ME: 'BME',
-    CE: 'BCE',
-    EE: 'BEE',
-    ECE: 'BEC',
-    MNC: 'BMA',
-    'ENGINEERING PHYSICS': 'BPH',
-    'MATERIAL SCIENCE': 'BMS',
-    ARCHITECTURE: 'BAR',
-    'DUAL DEGREE CSE': 'DCS',
-    'DUAL DEGREE ELECTRONICS': 'DEC',
-};
-
-const DEPARTMENT_ALIASES = {
-    'COMPUTER SCIENCE ENGINEERING': 'CSE',
-    'COMPUTER SCIENCE & ENGINEERING': 'CSE',
-    CSE: 'CSE',
-    'MECHANICAL ENGINEERING': 'ME',
-    ME: 'ME',
-    'CIVIL ENGINEERING': 'CE',
-    CE: 'CE',
-    'ELECTRICAL ENGINEERING': 'EE',
-    EE: 'EE',
-    'ELECTRONICS & COMMUNICATION ENGINEERING': 'ECE',
-    'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
-    ECE: 'ECE',
-    'MATHEMATICS & COMPUTING': 'MNC',
-    'MATHEMATICS AND COMPUTING': 'MNC',
-    MNC: 'MNC',
-    'ENGINEERING PHYSICS': 'ENGINEERING PHYSICS',
-    BPH: 'ENGINEERING PHYSICS',
-    'MATERIAL SCIENCE': 'MATERIAL SCIENCE',
-    BMS: 'MATERIAL SCIENCE',
-    ARCHITECTURE: 'ARCHITECTURE',
-    BAR: 'ARCHITECTURE',
-    'DUAL DEGREE CSE': 'DUAL DEGREE CSE',
-    DCS: 'DUAL DEGREE CSE',
-    'DUAL DEGREE ELECTRONICS': 'DUAL DEGREE ELECTRONICS',
-    DEC: 'DUAL DEGREE ELECTRONICS',
-};
-
-const normalizeDepartment = (department) => {
-    if (!department) return '';
-
-    const trimmed = String(department).trim();
-    const upper = trimmed.toUpperCase();
-    return DEPARTMENT_ALIASES[upper] || DEPARTMENT_ALIASES[trimmed] || '';
-};
-
-const getDepartmentPrefix = (department) => {
-    const normalizedDepartment = normalizeDepartment(department);
-    return DEPARTMENT_PREFIXES[normalizedDepartment] || null;
-};
-
-const validateDepartmentRollNumber = (department, rollno) => {
-    if (!department || !rollno) return false;
-
-    const prefix = getDepartmentPrefix(department);
-    if (!prefix) return false;
-
-    const normalizedRollNo = String(rollno).trim().toUpperCase();
-    const pattern = new RegExp(`^(?:\\d{2,4})?${prefix}`);
-    return pattern.test(normalizedRollNo);
-};
-
-const validateStudentEmail = (email, rollno) => {
-    if (!email || !rollno) return false;
-
-    const normalizedEmail = String(email).trim().toLowerCase();
-    const normalizedRollNo = String(rollno).trim().toLowerCase();
-
-    if (!normalizedEmail.endsWith('@nith.ac.in')) return false;
-
-    const localPart = normalizedEmail.split('@')[0];
-    return localPart === normalizedRollNo;
-};
 
 dotenv.config();
 
 const router = express.Router();
 
-const generateToken = (payload) => jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: '1h'
-});
-
-const getAdminRole = (admin) => {
-    const normalizedEmail = String(admin?.email || '').toLowerCase();
-
-    if (normalizedEmail.includes('attendant')) return 'attendant';
-    if (normalizedEmail.includes('chief')) return 'chief-warden';
-    if (normalizedEmail.includes('warden')) return 'warden';
-
-    switch (Number(admin?.authority_level)) {
-        case 1:
-            return 'attendant';
-        case 2:
-            return 'warden';
-        case 3:
-            return 'chief-warden';
-        default:
-            return 'attendant';
-    }
-};
-
-const isBcryptHash = (value) => typeof value === 'string' && /^\$2[aby]\$/i.test(value);
-
-const verifyStoredPassword = async (inputPassword, storedPassword) => {
-    if (!storedPassword) return false;
-
-    if (isBcryptHash(storedPassword)) {
-        return bcrypt.compare(inputPassword, storedPassword);
-    }
-
-    return inputPassword === storedPassword;
-};
-
-const inferRoleFromEmail = (email) => {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-
-    if (!normalizedEmail) return 'student';
-    if (normalizedEmail.includes('attendant')) return 'attendant';
-    if (normalizedEmail.includes('chief')) return 'chief-warden';
-    if (normalizedEmail.includes('guard')) return 'guard';
-    if (normalizedEmail.includes('warden')) return 'warden';
-
-    return 'student';
-};
 
 const ROLE_TABLES = {
     student: 'student',
     attendant: 'attendent',
     guard: 'guard',
-    warden: 'admin',
-    'chief-warden': 'admin'
+    warden: 'admin'
 };
 
 // ======================================================
@@ -192,12 +66,11 @@ router.get('/login', (req, res) => {
 // ======================================================
 
 router.post('/login', async (req, res) => {
-    const { email, password, role: requestedRole } = req.body || {};
-    const role = requestedRole || inferRoleFromEmail(email) || 'student';
+    const { email, password, role } = req.body;
 
-    if (!email || !password) {
+    if (!email || !password || !role) {
         return res.status(400).json({
-            message: 'Email and password are required'
+            message: 'Email, password and role are required'
         });
     }
 
@@ -210,22 +83,15 @@ router.post('/login', async (req, res) => {
     }
 
     try {
-        const lookupTables = [tableName, 'attendent', 'admin', 'guard', 'student'].filter((value, index, array) => array.indexOf(value) === index);
-        let user = null;
 
-        for (const lookupTable of lookupTables) {
-            const result = await pool.query(
-                `SELECT * FROM ${lookupTable}
-                 WHERE LOWER(email) = LOWER($1)
-                 LIMIT 1`,
-                [email]
-            );
+        const result = await pool.query(
+            `SELECT * FROM ${tableName}
+             WHERE email = $1
+             LIMIT 1`,
+            [email]
+        );
 
-            if (result.rows[0]) {
-                user = result.rows[0];
-                break;
-            }
-        }
+        const user = result.rows[0];
 
         if (!user) {
             return res.status(401).json({
@@ -233,29 +99,30 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        const storedPassword =
-            user.password_hash ?? user.password;
-
-        const passwordMatch = await verifyStoredPassword(
-            password,
-            storedPassword
-        );
-
+        const storedPassword = user.password_hash ?? user.password;
+        const passwordMatch = await bcrypt.compare(password, storedPassword);
         if (!passwordMatch) {
             return res.status(401).json({
                 message: 'Invalid credentials'
             });
         }
 
-        const otp = generateOtp();
-        storeOtp(email, otp, role, user);
+        const token = jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                role
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: '1h'
+            }
+        );
 
         return res.status(200).json({
-            success: true,
-            message: 'OTP generated',
-            email,
-            role,
-            otp: process.env.NODE_ENV !== 'production' ? otp : undefined
+            message: 'Login successful',
+            user,
+            token
         });
 
     } catch (err) {
@@ -270,41 +137,6 @@ router.post('/login', async (req, res) => {
     }
 });
 
-router.post('/verify-otp', async (req, res) => {
-    const { email, otp } = req.body || {};
-
-    if (!email || !otp) {
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid or expired OTP'
-        });
-    }
-
-    const result = verifyOtp(email, otp);
-
-    if (!result || !result.valid) {
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid or expired OTP'
-        });
-    }
-
-    const payload = result.payload;
-
-    const token = generateToken({
-        id: payload.id ?? payload.user?.id,
-        email: payload.email,
-        role: payload.role,
-        authority_level: payload.authority_level ?? payload.user?.authority_level,
-    });
-
-    return res.status(200).json({
-        success: true,
-        token,
-        user: payload.user,
-        role: payload.role
-    });
-});
 
 // ======================================================
 // CURRENT USER
@@ -404,38 +236,6 @@ router.post('/signup', async (req, res) => {
             if (missingFields.length > 0) {
                 return res.status(400).json({
                     message: `Missing required fields for student: ${missingFields.join(', ')}`
-                });
-            }
-
-            if (!validateDepartmentRollNumber(department, rollno)) {
-                return res.status(400).json({
-                    message: 'Roll number does not match the selected department.'
-                });
-            }
-
-            if (!validateStudentEmail(email, rollno)) {
-                return res.status(400).json({
-                    message: 'Email must be in the format rollno@nith.ac.in'
-                });
-            }
-
-            const existingStudent = await pool.query(
-                `SELECT email, roll_no, phone FROM student
-                 WHERE email = $1 OR roll_no = $2 OR phone = $3
-                 LIMIT 1`,
-                [email, rollno, phone]
-            );
-
-            if (existingStudent.rows.length > 0) {
-                const existing = existingStudent.rows[0];
-                const conflicts = [];
-
-                if (existing.email === email) conflicts.push('email');
-                if (existing.roll_no === rollno) conflicts.push('roll number');
-                if (existing.phone === phone) conflicts.push('phone number');
-
-                return res.status(409).json({
-                    message: `The following values already exist: ${conflicts.join(', ')}`
                 });
             }
 
@@ -675,7 +475,7 @@ else if (data.role === 'warden') {
         // GENERATE JWT TOKEN
         // ======================================================
 
-        const token = generateToken({ id: user.id, email: user.email, role: data.role });
+        const token = jwt.sign({ id: user.id, email: user.email, role: data.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
         return res.status(201).json({ message: 'User created successfully', user, token });
     } catch (err) {
         console.error("Signup error:", err);
