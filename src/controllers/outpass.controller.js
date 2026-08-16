@@ -13,7 +13,6 @@ POST /api/outpasses
 =================================================
 */
 const createOutpass = asyncHandler(async (req, res) => {
-
     const {
         outpass_type,
         place_of_visit,
@@ -26,26 +25,18 @@ const createOutpass = asyncHandler(async (req, res) => {
 
     const studentId = req.user?.id;
 
-    if (
-        !outpass_type ||
-        !parent_contact
-    ) {
-        throw new ApiError(
-            400,
-            "Required fields are missing"
-        );
+    if (!outpass_type || !parent_contact) {
+        throw new ApiError(400, "Required fields are missing");
     }
 
     const client = await pool.connect();
 
     try {
-
         await client.query("BEGIN");
 
         // =================================================
         // FETCH STUDENT + HOSTEL
         // =================================================
-
         const studentQuery = `
             SELECT
                 s.id,
@@ -59,259 +50,156 @@ const createOutpass = asyncHandler(async (req, res) => {
             WHERE s.id = $1;
         `;
 
-        const studentResult = await client.query(
-            studentQuery,
-            [studentId]
-        );
+        const studentResult = await client.query(studentQuery, [studentId]);
 
         if (studentResult.rows.length === 0) {
-            throw new ApiError(
-                404,
-                "Student not found"
-            );
+            throw new ApiError(404, "Student not found");
         }
 
-        const student =
-            studentResult.rows[0];
+        const student = studentResult.rows[0];
 
         // =================================================
         // ENSURE STUDENT ASSIGNED TO HOSTEL
         // =================================================
-
         if (!student.hostel_id) {
-            throw new ApiError(
-                400,
-                "Student is not assigned to any hostel"
-            );
+            throw new ApiError(400, "Student is not assigned to any hostel");
         }
 
         // =================================================
         // NORMALIZE OUTPASS TYPE
         // =================================================
-
-        const normalizedType =
-            outpass_type.trim().toLowerCase();
-
-        const validTypes = [
-            "local",
-            "outstation",
-            "home"
-        ];
+        const normalizedType = outpass_type.trim().toLowerCase();
+        const validTypes = ["local", "outstation", "home"];
 
         if (!validTypes.includes(normalizedType)) {
-            throw new ApiError(
-                400,
-                "Invalid outpass type"
-            );
+            throw new ApiError(400, "Invalid outpass type");
         }
 
-        const isLocalOutpass =
-            normalizedType === "local";
+        const isLocalOutpass = normalizedType === "local";
 
         // =================================================
         // VALIDATE EMERGENCY FLAG
         // =================================================
-
         if (typeof is_emergency !== "boolean") {
-            throw new ApiError(
-                400,
-                "Invalid emergency flag."
-            );
+            throw new ApiError(400, "Invalid emergency flag.");
         }
 
         // =================================================
         // AUTO HANDLE LOCAL OUTPASS
         // =================================================
-
         const trimmedPlace = place_of_visit?.trim();
         const trimmedPurpose = purpose?.trim();
 
-        const finalPlace =
-            isLocalOutpass
-                ? (trimmedPlace || "Local")
-                : trimmedPlace;
-
-        const finalPurpose =
-            isLocalOutpass
-                ? (trimmedPurpose || "Local Visit")
-                : trimmedPurpose;
+        const finalPlace = isLocalOutpass ? (trimmedPlace || "Local") : trimmedPlace;
+        const finalPurpose = isLocalOutpass ? (trimmedPurpose || "Local Visit") : trimmedPurpose;
 
         // =================================================
         // VALIDATE HOME / OUTSTATION DATA
         // =================================================
-
-        if (
-            !isLocalOutpass &&
-            (!finalPlace || !finalPurpose)
-        ) {
-            throw new ApiError(
-                400,
-                "Place of visit and purpose are required for Home and Outstation outpasses."
-            );
+        if (!isLocalOutpass && (!finalPlace || !finalPurpose)) {
+            throw new ApiError(400, "Place of visit and purpose are required for Home and Outstation outpasses.");
         }
 
         // =================================================
         // EMERGENCY VALIDATION
         // =================================================
-
-        if (
-            is_emergency &&
-            (!purpose || purpose.trim() === "")
-        ) {
-            throw new ApiError(
-                400,
-                "Purpose is required for emergency outpass."
-            );
+        if (is_emergency && (!purpose || purpose.trim() === "")) {
+            throw new ApiError(400, "Purpose is required for emergency outpass.");
         }
-
-        // =================================================
-        // LOCAL OUTPASS CUTOFF VALIDATION
-        // =================================================
-
-
 
         // =================================================
         // CHECK EXISTING ACTIVE OUTPASS
         // =================================================
-
         const existingQuery = `
             SELECT outpass_type
             FROM outpass
             WHERE
                 student_id = $1
                 AND is_active = true
-                AND outp_status IN (
-                    'Pending',
-                    'Approved'
-                );
+                AND outp_status IN ('Pending', 'Approved');
         `;
 
-        const existingResult = await client.query(
-            existingQuery,
-            [studentId]
-        );
+        const existingResult = await client.query(existingQuery, [studentId]);
 
-        const hasLocal = existingResult.rows.some(
-            row => row.outpass_type === "Local"
-        );
-
+        const hasLocal = existingResult.rows.some(row => row.outpass_type === "Local");
         const hasLongTrip = existingResult.rows.some(
-            row =>
-                row.outpass_type === "Home" ||
-                row.outpass_type === "Outstation"
+            row => row.outpass_type === "Home" || row.outpass_type === "Outstation"
         );
 
         if (isLocalOutpass && hasLocal) {
-            throw new ApiError(
-                400,
-                "You already have an active Local outpass."
-            );
+            throw new ApiError(400, "You already have an active Local outpass.");
         }
 
         if (!isLocalOutpass && hasLongTrip) {
-            throw new ApiError(
-                400,
-                "You already have an active Home/Outstation outpass."
-            );
+            throw new ApiError(400, "You already have an active Home/Outstation outpass.");
         }
 
         // =================================================
         // VALIDATE DATE/TIME
         // =================================================
-
         let departure = null;
+        const today = new Date();
 
-        const today = new Date()
         if (departure_datetime) {
-
-
-
-            departure =
-                new Date(departure_datetime);
+            departure = new Date(departure_datetime);
 
             if (isNaN(departure.getTime())) {
-                throw new ApiError(
-                    400,
-                    "Invalid departure date."
-                );
+                throw new ApiError(400, "Invalid departure date.");
             }
 
             if (isLocalOutpass) {
-                if (today.getDate() !== departure.getDate() || today.getMonth() !== departure.getMonth()
-                    || today.getFullYear() !== departure.getFullYear()) {
-                    throw new ApiError(400, "Departure must be on same day")
+                if (
+                    today.getDate() !== departure.getDate() || 
+                    today.getMonth() !== departure.getMonth() || 
+                    today.getFullYear() !== departure.getFullYear()
+                ) {
+                    throw new ApiError(400, "Departure must be on same day");
                 }
             }
 
             // Allow 30 min tolerance
-            if (
-                departure.getTime()
-                <
-                Date.now() - (1000 * 60 * 30)
-            ) {
-                throw new ApiError(
-                    400,
-                    "Departure time cannot be in the past"
-                );
+            if (departure.getTime() < Date.now() - (1000 * 60 * 30)) {
+                throw new ApiError(400, "Departure time cannot be in the past");
             }
         }
 
         if (arrival_datetime) {
-
-            const arrival =
-                new Date(arrival_datetime);
+            const arrival = new Date(arrival_datetime);
 
             if (isNaN(arrival.getTime())) {
-                throw new ApiError(
-                    400,
-                    "Invalid arrival date."
-                );
+                throw new ApiError(400, "Invalid arrival date.");
             }
 
-            if (isLocalOutpass && (today.getDate() !== arrival.getDate() ||
-                today.getMonth() !== arrival.getMonth() || today.getFullYear() !== arrival.getFullYear()))
-                throw new ApiError(400, "Arrival must be on same day")
+            if (isLocalOutpass && (
+                today.getDate() !== arrival.getDate() ||
+                today.getMonth() !== arrival.getMonth() || 
+                today.getFullYear() !== arrival.getFullYear()
+            )) {
+                throw new ApiError(400, "Arrival must be on same day");
+            }
 
-            if (
-                departure &&
-                arrival <= departure
-            ) {
-                throw new ApiError(
-                    400,
-                    "Arrival time must be after departure time"
-                );
+            if (departure && arrival <= departure) {
+                throw new ApiError(400, "Arrival time must be after departure time");
             }
         }
 
+        // =================================================
+        // LOCAL OUTPASS CUTOFF VALIDATION
+        // =================================================
         if (isLocalOutpass && departure) {
-    const departureMinutes =
-        departure.getHours() * 60 +
-        departure.getMinutes();
+            const departureMinutes = departure.getHours() * 60 + departure.getMinutes();
+            const [cutoffHour, cutoffMinute] = student.local_outpass_cutoff.split(":").map(Number);
+            const cutoffMinutes = cutoffHour * 60 + cutoffMinute;
 
-    const [cutoffHour, cutoffMinute] =
-        student.local_outpass_cutoff
-            .split(":")
-            .map(Number);
-
-    const cutoffMinutes =
-        cutoffHour * 60 +
-        cutoffMinute;
-
-    if (
-        departureMinutes > cutoffMinutes &&
-        !is_emergency
-    ) {
-        throw new ApiError(
-            400,
-            "Local outpass departure cannot be after the hostel cutoff time."
-        );
-    }
-}
+            if (departureMinutes > cutoffMinutes && !is_emergency) {
+                throw new ApiError(400, "Local outpass departure cannot be after the hostel cutoff time.");
+            }
+        }
 
         // =================================================
-        // INSERT OUTPASS
+        // INSERT OUTPASS 
+        // Note: Barcode fields explicitly NULL. Token generated ONLY on approval.
         // =================================================
-
         const query = `
             INSERT INTO outpass (
                 student_id,
@@ -321,19 +209,22 @@ const createOutpass = asyncHandler(async (req, res) => {
                 departure_datetime,
                 arrival_datetime,
                 parent_contact,
-                is_emergency
+                is_emergency,
+                barcode_token,
+                barcode_generated_at,
+                barcode_revoked_at
             )
             VALUES (
                 $1, $2, $3, $4,
-                $5, $6, $7, $8
+                $5, $6, $7, $8,
+                NULL, NULL, NULL
             )
             RETURNING *;
         `;
 
         const values = [
             studentId,
-            normalizedType.charAt(0).toUpperCase() +
-            normalizedType.slice(1),
+            normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1),
             finalPlace,
             finalPurpose,
             departure_datetime || null,
@@ -342,19 +233,10 @@ const createOutpass = asyncHandler(async (req, res) => {
             is_emergency
         ];
 
-        const result = await client.query(
-            query,
-            values
-        );
+        const result = await client.query(query, values);
 
-        if (
-            !result ||
-            result.rows.length === 0
-        ) {
-            throw new ApiError(
-                500,
-                "Failed to create outpass request"
-            );
+        if (!result || result.rows.length === 0) {
+            throw new ApiError(500, "Failed to create outpass request");
         }
 
         await client.query("COMMIT");
@@ -362,7 +244,6 @@ const createOutpass = asyncHandler(async (req, res) => {
         // =================================================
         // RESPONSE
         // =================================================
-
         const createdOutpass = result.rows[0];
 
         // Log student activity asynchronously
@@ -392,12 +273,9 @@ const createOutpass = asyncHandler(async (req, res) => {
         );
 
     } catch (error) {
-
         await client.query("ROLLBACK");
         throw error;
-
     } finally {
-
         client.release();
     }
 });
@@ -409,11 +287,10 @@ GET /api/outpasses/my
 =================================================
 */
 const getMyOutpasses = asyncHandler(async (req, res) => {
-
     const studentId = req.user?.id;
 
     if (!studentId) {
-        throw new ApiError(403, "Login with valid credentials")
+        throw new ApiError(403, "Login with valid credentials");
     }
 
     const query = `
@@ -424,7 +301,7 @@ const getMyOutpasses = asyncHandler(async (req, res) => {
             lr.latest_remark
         FROM outpass o
         JOIN student s
-        ON o.student_id = s.id
+            ON o.student_id = s.id
         LEFT JOIN LATERAL (
             SELECT
                 json_build_object(
@@ -442,15 +319,22 @@ const getMyOutpasses = asyncHandler(async (req, res) => {
         ORDER BY o.created_at DESC;
     `;
 
-    const result = await pool.query(
-        query,
-        [studentId]
-    );
+    const result = await pool.query(query, [studentId]);
+
+    // Format the response to hide the raw token from the client network payload
+    // and provide a clean boolean flag for the frontend UI.
+    const safeOutpasses = result.rows.map((row) => {
+        const { barcode_token, ...safeRow } = row;
+        return {
+            ...safeRow,
+            has_barcode: !!barcode_token 
+        };
+    });
 
     return res.status(200).json(
         new ApiResponse(
             200,
-            result.rows,
+            safeOutpasses,
             "Outpasses fetched successfully"
         )
     );
@@ -726,8 +610,7 @@ GET /api/outpasses/active
 */
 
 const bulkOutpassAction = asyncHandler(async (req, res) => {
-
-    const { ids, action, remark } = req.body;   // <-- was outpass_ids
+    const { ids, action, remark } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
         throw new ApiError(400, "ids array required");
@@ -756,7 +639,6 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
         await client.query("BEGIN");
 
         /* ================= RESOLVE HOSTEL (WARDEN OR ATTENDANT) ================= */
-
         let hostelResult;
 
         if (req.user.role === "warden") {
@@ -786,7 +668,6 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
         const hostelId = hostelResult.rows[0].hostel_id;
 
         /* ================= VERIFY OUTPASSES ================= */
-
         const verifyQuery = `
             SELECT o.id
             FROM outpass o
@@ -804,6 +685,7 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
             throw new ApiError(400, "No valid pending outpasses found");
         }
 
+        /* ================= BULK STATUS UPDATE ================= */
         let status = "Approved";
         let active = true;
 
@@ -812,13 +694,24 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
             active = false;
         }
 
-        const updateQuery = `
+        // Dynamically revoke the barcode during the bulk update if rejecting
+        let updateQuery = `
             UPDATE outpass
             SET outp_status = $1,
                 is_active = $2,
                 approved_by = $3,
                 approved_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
+        `;
+
+        if (action === "reject") {
+            updateQuery += `,
+                barcode_token = NULL,
+                barcode_revoked_at = CURRENT_TIMESTAMP
+            `;
+        }
+
+        updateQuery += `
             WHERE id = ANY($4)
             RETURNING *;
         `;
@@ -828,6 +721,44 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
             [status, active, req.user.id, validIds]
         );
 
+        /* ================= GENERATE UNIQUE BARCODES FOR APPROVALS ================= */
+        if (action === "approve") {
+            for (const row of updateResult.rows) {
+                let tokenCreated = false;
+
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    try {
+                        const token = generateBarcodeToken();
+
+                        await client.query(
+                            `
+                            UPDATE outpass
+                            SET
+                                barcode_token = $1,
+                                barcode_generated_at = CURRENT_TIMESTAMP,
+                                barcode_revoked_at = NULL
+                            WHERE id = $2
+                            `,
+                            [token, row.id]
+                        );
+
+                        tokenCreated = true;
+                        break;
+                    } catch (err) {
+                        if (err.code === "23505" && attempt < 4) {
+                            continue; // Retry on extremely unlikely token collision
+                        }
+                        throw err;
+                    }
+                }
+
+                if (!tokenCreated) {
+                    throw new Error(`Failed to generate barcode token for outpass ${row.id}`);
+                }
+            }
+        }
+
+        /* ================= INSERT REMARKS (IF REJECTED) ================= */
         if (action === "reject") {
             const adminRole = req.user.role === "warden" ? "WARDEN" : "ATTENDANT";
             const remarkQuery = `
@@ -839,10 +770,24 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
 
         await client.query("COMMIT");
 
+        /* ================= FORMAT RESPONSE ================= */
+        // Filter out raw token before sending to the client, providing the UI flag
+        const safeOutpasses = updateResult.rows.map(row => {
+            const { barcode_token, ...safeRow } = row;
+            return {
+                ...safeRow,
+                has_barcode: action === "approve"
+            };
+        });
+
         return res.status(200).json(
             new ApiResponse(
                 200,
-                { action, affected_count: updateResult.rows.length, outpasses: updateResult.rows },
+                { 
+                    action, 
+                    affected_count: safeOutpasses.length, 
+                    outpasses: safeOutpasses 
+                },
                 `Bulk ${action} successful`
             )
         );
@@ -856,14 +801,10 @@ const bulkOutpassAction = asyncHandler(async (req, res) => {
 });
 
 const getActiveOutpass = asyncHandler(async (req, res) => {
-
     const studentId = req.user?.id;
 
     if (!studentId) {
-        throw new ApiError(
-            400,
-            "Login with valid credentials"
-        );
+        throw new ApiError(400, "Login with valid credentials");
     }
 
     const query = `
@@ -884,22 +825,15 @@ const getActiveOutpass = asyncHandler(async (req, res) => {
                 '[]'::json
             ) AS remarks
         FROM outpass o
-
-        JOIN student s
-        ON o.student_id = s.id
-
-        LEFT JOIN outpass_remarks r
-        ON r.outpass_id = o.id
-
+        JOIN student s ON o.student_id = s.id
+        LEFT JOIN outpass_remarks r ON r.outpass_id = o.id
         WHERE
             o.student_id = $1
             AND o.is_active = true
-
         GROUP BY
             o.id,
             s.hostel,
             s.hostel_id
-
         ORDER BY
             CASE
                 WHEN o.outpass_type = 'Local' THEN 1
@@ -908,15 +842,22 @@ const getActiveOutpass = asyncHandler(async (req, res) => {
             o.created_at DESC;
     `;
 
-    const result = await pool.query(
-        query,
-        [studentId]
-    );
+    const result = await pool.query(query, [studentId]);
+
+    // Hide the raw barcode token from the client network payload
+    // and provide a clean boolean flag for the frontend UI.
+    const safeActiveOutpasses = result.rows.map((row) => {
+        const { barcode_token, ...safeRow } = row;
+        return {
+            ...safeRow,
+            has_barcode: !!barcode_token
+        };
+    });
 
     return res.status(200).json(
         new ApiResponse(
             200,
-            result.rows,
+            safeActiveOutpasses,
             "Active outpasses fetched successfully"
         )
     );
@@ -929,23 +870,15 @@ GET /api/outpasses/:id
 =================================================
 */
 const getOutpassById = asyncHandler(async (req, res) => {
-
     const { id } = req.params;
-
     const studentId = req.user?.id;
 
     if (!studentId) {
-        throw new ApiError(
-            400,
-            "Login with valid credentials"
-        );
+        throw new ApiError(400, "Login with valid credentials");
     }
 
     if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
-        throw new ApiError(
-            400,
-            "Invalid outpass ID"
-        );
+        throw new ApiError(400, "Invalid outpass ID");
     }
 
     const outpassQuery = `
@@ -954,24 +887,19 @@ const getOutpassById = asyncHandler(async (req, res) => {
             s.hostel,
             s.hostel_id
         FROM outpass o
-        JOIN student s
-        ON o.student_id = s.id
-        WHERE
-            o.id = $1
-            AND o.student_id = $2;
+        JOIN student s ON o.student_id = s.id
+        WHERE o.id = $1 AND o.student_id = $2;
     `;
 
-    const outpassResult = await pool.query(
-        outpassQuery,
-        [Number(id), studentId]
-    );
+    const outpassResult = await pool.query(outpassQuery, [Number(id), studentId]);
 
     if (outpassResult.rows.length === 0) {
-        throw new ApiError(
-            404,
-            "Outpass not found"
-        );
+        throw new ApiError(404, "Outpass not found");
     }
+
+    // Hide the raw barcode token from the client network payload
+    const { barcode_token, ...safeOutpass } = outpassResult.rows[0];
+    safeOutpass.has_barcode = !!barcode_token;
 
     const remarksQuery = `
         SELECT
@@ -984,16 +912,13 @@ const getOutpassById = asyncHandler(async (req, res) => {
         ORDER BY created_at ASC;
     `;
 
-    const remarksResult = await pool.query(
-        remarksQuery,
-        [Number(id)]
-    );
+    const remarksResult = await pool.query(remarksQuery, [Number(id)]);
 
     return res.status(200).json(
         new ApiResponse(
             200,
             {
-                outpass: outpassResult.rows[0],
+                outpass: safeOutpass,
                 remarks: remarksResult.rows
             },
             "Outpass fetched successfully"
@@ -1008,88 +933,64 @@ PATCH /api/outpasses/:id/cancel
 =================================================
 */
 const cancelOutpass = asyncHandler(async (req, res) => {
-
     const { id } = req.params;
-
     const studentId = req.user?.id;
 
     if (!studentId) {
-        throw new ApiError(
-            400,
-            "Login with valid credentials"
-        );
+        throw new ApiError(400, "Login with valid credentials");
     }
 
     if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
-        throw new ApiError(
-            400,
-            "Invalid outpass ID"
-        );
+        throw new ApiError(400, "Invalid outpass ID");
     }
 
     const client = await pool.connect();
 
     try {
-
         await client.query("BEGIN");
 
         const existingQuery = `
             SELECT *
             FROM outpass
-            WHERE
-                id = $1
-                AND student_id = $2;
+            WHERE id = $1 AND student_id = $2;
         `;
 
-        const existingResult = await client.query(
-            existingQuery,
-            [Number(id), studentId]
-        );
+        const existingResult = await client.query(existingQuery, [Number(id), studentId]);
 
         if (existingResult.rows.length === 0) {
-            throw new ApiError(
-                404,
-                "Outpass not found"
-            );
+            throw new ApiError(404, "Outpass not found");
         }
 
         const outpass = existingResult.rows[0];
 
         if (!outpass.is_active) {
-            throw new ApiError(
-                400,
-                "Outpass is already inactive."
-            );
+            throw new ApiError(400, "Outpass is already inactive.");
         }
 
-        if (outpass.outp_status !== "Pending") {
-            throw new ApiError(
-                400,
-                "Only pending outpasses can be cancelled."
-            );
+        // Allow cancellation only if the outpass is Pending or Approved
+        if (!["Pending", "Approved"].includes(outpass.outp_status)) {
+            throw new ApiError(400, "Only pending or approved outpasses can be cancelled.");
         }
 
+        // Student has already left the campus
         if (outpass.std_status === "Out") {
-            throw new ApiError(
-                400,
-                "Cannot cancel after exiting campus."
-            );
+            throw new ApiError(400, "Cannot cancel after exiting campus.");
         }
 
+        /* ================= CANCEL OUTPASS & REVOKE BARCODE ================= */
         const updateQuery = `
             UPDATE outpass
             SET
                 outp_status = 'Rejected',
                 is_active = false,
+                barcode_token = NULL,
+                barcode_revoked_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *;
         `;
 
-        const updatedResult = await client.query(
-            updateQuery,
-            [Number(id)]
-        );
+        const updatedResult = await client.query(updateQuery, [Number(id)]);
 
         await client.query("COMMIT");
 
@@ -1102,16 +1003,12 @@ const cancelOutpass = asyncHandler(async (req, res) => {
         );
 
     } catch (error) {
-
         await client.query("ROLLBACK");
         throw error;
-
     } finally {
-
         client.release();
     }
 });
-
 /*
 =================================================
 GET PENDING OUTPASSES
@@ -1309,66 +1206,42 @@ APPROVE OUTPASS
 =================================================
 */
 const approveOutpass = asyncHandler(async (req, res) => {
-
     const { id } = req.params;
     const adminId = req.user?.id;
     const { remark } = req.body;
 
     /* ================= VALIDATION ================= */
-
     if (!id || !adminId) {
-        throw new ApiError(
-            400,
-            "Outpass Id or Admin Id is missing"
-        );
+        throw new ApiError(400, "Outpass Id or Admin Id is missing");
     }
 
     const outpassId = Number(id);
 
-    if (
-        !Number.isInteger(outpassId) ||
-        outpassId <= 0
-    ) {
-        throw new ApiError(
-            400,
-            "Invalid outpass id"
-        );
+    if (!Number.isInteger(outpassId) || outpassId <= 0) {
+        throw new ApiError(400, "Invalid outpass id");
     }
 
     const trimmedRemark = remark?.trim();
-
     const client = await pool.connect();
 
     try {
-
         await client.query("BEGIN");
 
         /* ================= GET USER HOSTEL ================= */
-
         let hostelResult;
 
         if (req.user.role === "warden") {
-
             hostelResult = await client.query(
                 `
-                SELECT
-                    h.id AS hostel_id
+                SELECT h.id AS hostel_id
                 FROM admin a
-                JOIN hostel h
-                    ON h.name = a.hostel
-                WHERE
-                    a.id = $1
-                    AND a.authority_level = 2
+                JOIN hostel h ON h.name = a.hostel
+                WHERE a.id = $1 AND a.authority_level = 2
                 LIMIT 1;
                 `,
                 [adminId]
             );
-
-        } else if (
-            req.user.role === "attendent" ||
-            req.user.role === "attendant"
-        ) {
-
+        } else if (req.user.role === "attendent" || req.user.role === "attendant") {
             hostelResult = await client.query(
                 `
                 SELECT hostel_id
@@ -1378,56 +1251,34 @@ const approveOutpass = asyncHandler(async (req, res) => {
                 `,
                 [adminId]
             );
-
         } else {
-
-            throw new ApiError(
-                403,
-                "Unauthorized role."
-            );
+            throw new ApiError(403, "Unauthorized role.");
         }
 
         if (hostelResult.rowCount === 0) {
-            throw new ApiError(
-                404,
-                "Hostel mapping not found."
-            );
+            throw new ApiError(404, "Hostel mapping not found.");
         }
 
         const hostelId = hostelResult.rows[0].hostel_id;
 
         /* ================= VERIFY HOSTEL OWNERSHIP ================= */
-
         const verifyQuery = `
-            SELECT
-                o.id
+            SELECT o.id
             FROM outpass o
-            JOIN student s
-                ON o.student_id = s.id
-            WHERE
-                o.id = $1
-                AND s.hostel_id = $2
-                AND o.outp_status = 'Pending'
-                AND o.is_active = true;
+            JOIN student s ON o.student_id = s.id
+            WHERE o.id = $1
+              AND s.hostel_id = $2
+              AND o.outp_status = 'Pending'
+              AND o.is_active = true;
         `;
 
-        const verifyResult = await client.query(
-            verifyQuery,
-            [
-                outpassId,
-                hostelId
-            ]
-        );
+        const verifyResult = await client.query(verifyQuery, [outpassId, hostelId]);
 
         if (verifyResult.rowCount === 0) {
-            throw new ApiError(
-                403,
-                "Unauthorized hostel access or outpass is not pending."
-            );
+            throw new ApiError(403, "Unauthorized hostel access or outpass is not pending.");
         }
 
-        /* ================= APPROVE ================= */
-
+        /* ================= APPROVE OUTPASS ================= */
         const updateQuery = `
             UPDATE outpass
             SET
@@ -1442,71 +1293,77 @@ const approveOutpass = asyncHandler(async (req, res) => {
             RETURNING *;
         `;
 
-        const updateResult = await client.query(
-            updateQuery,
-            [
-                adminId,
-                outpassId
-            ]
-        );
+        const updateResult = await client.query(updateQuery, [adminId, outpassId]);
 
         if (updateResult.rowCount === 0) {
-            throw new ApiError(
-                400,
-                "Failed to approve outpass."
-            );
+            throw new ApiError(400, "Failed to approve outpass.");
+        }
+
+        /* ================= GENERATE BARCODE TOKEN ================= */
+        let barcodeToken = null;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                barcodeToken = generateBarcodeToken();
+
+                await client.query(
+                    `
+                    UPDATE outpass
+                    SET
+                        barcode_token = $1,
+                        barcode_generated_at = CURRENT_TIMESTAMP,
+                        barcode_revoked_at = NULL
+                    WHERE id = $2
+                    `,
+                    [barcodeToken, outpassId]
+                );
+
+                break; // Break out of loop if successful
+            } catch (err) {
+                // PostgreSQL unique violation (code 23505) indicates a token collision
+                if (err.code === "23505" && attempt < 4) {
+                    continue; 
+                }
+                throw err;
+            }
         }
 
         /* ================= REMARK ================= */
-
         if (trimmedRemark) {
-
-            const adminRole =
-                req.user.role === "warden"
-                    ? "WARDEN"
-                    : "ATTENDANT";
+            const adminRole = req.user.role === "warden" ? "WARDEN" : "ATTENDANT";
 
             await client.query(
                 `
                 INSERT INTO outpass_remarks (
-                    outpass_id,
-                    admin_id,
-                    admin_role,
-                    remark
+                    outpass_id, admin_id, admin_role, remark
                 )
-                VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4
-                );
+                VALUES ($1, $2, $3, $4);
                 `,
-                [
-                    outpassId,
-                    adminId,
-                    adminRole,
-                    trimmedRemark
-                ]
+                [outpassId, adminId, adminRole, trimmedRemark]
             );
         }
 
         await client.query("COMMIT");
 
+        // Merge the newly generated token into the response object
+        const finalOutpass = {
+            ...updateResult.rows[0],
+            barcode_token: barcodeToken,
+            has_barcode: true
+        };
+
         return res.status(200).json(
             new ApiResponse(
                 200,
-                updateResult.rows[0],
+                finalOutpass,
                 "Outpass approved successfully."
             )
         );
 
     } catch (error) {
-
         await client.query("ROLLBACK");
         throw error;
-
     } finally {
-
         client.release();
     }
 });
@@ -1517,73 +1374,47 @@ REJECT OUTPASS
 =================================================
 */
 const rejectOutpass = asyncHandler(async (req, res) => {
-
     const { id } = req.params;
     const adminId = req.user?.id;
     const { remark } = req.body;
 
     /* ================= VALIDATION ================= */
-
     if (!id || !adminId) {
-        throw new ApiError(
-            400,
-            "Outpass Id or Admin Id is missing"
-        );
+        throw new ApiError(400, "Outpass Id or Admin Id is missing");
     }
 
     const outpassId = Number(id);
 
-    if (
-        !Number.isInteger(outpassId) ||
-        outpassId <= 0
-    ) {
-        throw new ApiError(
-            400,
-            "Invalid outpass id"
-        );
+    if (!Number.isInteger(outpassId) || outpassId <= 0) {
+        throw new ApiError(400, "Invalid outpass id");
     }
 
     const trimmedRemark = remark?.trim();
 
     if (!trimmedRemark) {
-        throw new ApiError(
-            400,
-            "Remark is required while rejecting outpasses."
-        );
+        throw new ApiError(400, "Remark is required while rejecting outpasses.");
     }
 
     const client = await pool.connect();
 
     try {
-
         await client.query("BEGIN");
 
         /* ================= GET USER HOSTEL ================= */
-
         let hostelResult;
 
         if (req.user.role === "warden") {
-
             hostelResult = await client.query(
                 `
-                SELECT
-                    h.id AS hostel_id
+                SELECT h.id AS hostel_id
                 FROM admin a
-                JOIN hostel h
-                    ON h.name = a.hostel
-                WHERE
-                    a.id = $1
-                    AND a.authority_level = 2
+                JOIN hostel h ON h.name = a.hostel
+                WHERE a.id = $1 AND a.authority_level = 2
                 LIMIT 1;
                 `,
                 [adminId]
             );
-
-        } else if (
-            req.user.role === "attendent" ||
-            req.user.role === "attendant"
-        ) {
-
+        } else if (req.user.role === "attendent" || req.user.role === "attendant") {
             hostelResult = await client.query(
                 `
                 SELECT hostel_id
@@ -1593,61 +1424,41 @@ const rejectOutpass = asyncHandler(async (req, res) => {
                 `,
                 [adminId]
             );
-
         } else {
-
-            throw new ApiError(
-                403,
-                "Unauthorized role."
-            );
+            throw new ApiError(403, "Unauthorized role.");
         }
 
         if (hostelResult.rowCount === 0) {
-            throw new ApiError(
-                404,
-                "Hostel mapping not found."
-            );
+            throw new ApiError(404, "Hostel mapping not found.");
         }
 
         const hostelId = hostelResult.rows[0].hostel_id;
 
         /* ================= VERIFY HOSTEL OWNERSHIP ================= */
-
         const verifyQuery = `
-            SELECT
-                o.id
+            SELECT o.id
             FROM outpass o
-            JOIN student s
-                ON o.student_id = s.id
-            WHERE
-                o.id = $1
-                AND s.hostel_id = $2
-                AND o.outp_status = 'Pending'
-                AND o.is_active = true;
+            JOIN student s ON o.student_id = s.id
+            WHERE o.id = $1
+              AND s.hostel_id = $2
+              AND o.outp_status = 'Pending'
+              AND o.is_active = true;
         `;
 
-        const verifyResult = await client.query(
-            verifyQuery,
-            [
-                outpassId,
-                hostelId
-            ]
-        );
+        const verifyResult = await client.query(verifyQuery, [outpassId, hostelId]);
 
         if (verifyResult.rowCount === 0) {
-            throw new ApiError(
-                403,
-                "Unauthorized hostel access or outpass is not pending."
-            );
+            throw new ApiError(403, "Unauthorized hostel access or outpass is not pending.");
         }
 
-        /* ================= REJECT OUTPASS ================= */
-
+        /* ================= REJECT OUTPASS & REVOKE BARCODE ================= */
         const updateQuery = `
             UPDATE outpass
             SET
                 outp_status = 'Rejected',
                 is_active = false,
+                barcode_token = NULL,
+                barcode_revoked_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
             WHERE
                 id = $1
@@ -1656,46 +1467,23 @@ const rejectOutpass = asyncHandler(async (req, res) => {
             RETURNING *;
         `;
 
-        const updateResult = await client.query(
-            updateQuery,
-            [outpassId]
-        );
+        const updateResult = await client.query(updateQuery, [outpassId]);
 
         if (updateResult.rowCount === 0) {
-            throw new ApiError(
-                400,
-                "Failed to reject outpass."
-            );
+            throw new ApiError(400, "Failed to reject outpass.");
         }
 
         /* ================= INSERT REMARK ================= */
-
-        const adminRole =
-            req.user.role === "warden"
-                ? "WARDEN"
-                : "ATTENDANT";
+        const adminRole = req.user.role === "warden" ? "WARDEN" : "ATTENDANT";
 
         await client.query(
             `
             INSERT INTO outpass_remarks (
-                outpass_id,
-                admin_id,
-                admin_role,
-                remark
+                outpass_id, admin_id, admin_role, remark
             )
-            VALUES (
-                $1,
-                $2,
-                $3,
-                $4
-            );
+            VALUES ($1, $2, $3, $4);
             `,
-            [
-                outpassId,
-                adminId,
-                adminRole,
-                trimmedRemark
-            ]
+            [outpassId, adminId, adminRole, trimmedRemark]
         );
 
         await client.query("COMMIT");
@@ -1709,12 +1497,9 @@ const rejectOutpass = asyncHandler(async (req, res) => {
         );
 
     } catch (error) {
-
         await client.query("ROLLBACK");
         throw error;
-
     } finally {
-
         client.release();
     }
 });
@@ -1815,31 +1600,16 @@ GUARD EXIT / ENTRY
 =================================================
 */
 const recordEntry = asyncHandler(async (req, res) => {
+    const { outpass_id, action, gate } = req.body;
+    const guardId = req.user?.id;
 
-    const {
-        outpass_id,
-        action,
-        gate
-    } = req.body;
-
-    const guardId =
-        req.user?.id;
-
-    if (
-        !outpass_id ||
-        !action
-    ) {
-        throw new ApiError(
-            400,
-            "outpass_id and action required"
-        );
+    if (!outpass_id || !action) {
+        throw new ApiError(400, "outpass_id and action required");
     }
 
-    const client =
-        await pool.connect();
+    const client = await pool.connect();
 
     try {
-
         await client.query("BEGIN");
 
         const outpassQuery = `
@@ -1848,79 +1618,47 @@ const recordEntry = asyncHandler(async (req, res) => {
                 s.name,
                 s.roll_no
             FROM outpass o
-            JOIN student s
-            ON o.student_id = s.id
+            JOIN student s ON o.student_id = s.id
             WHERE o.id = $1;
         `;
 
-        const outpassResult =
-            await client.query(
-                outpassQuery,
-                [outpass_id]
-            );
+        const outpassResult = await client.query(outpassQuery, [outpass_id]);
 
-        if (
-            outpassResult.rows.length === 0
-        ) {
-            throw new ApiError(
-                404,
-                "Outpass not found"
-            );
+        if (outpassResult.rows.length === 0) {
+            throw new ApiError(404, "Outpass not found");
         }
 
-        const outpass =
-            outpassResult.rows[0];
+        const outpass = outpassResult.rows[0];
 
         // =========================
         // EXIT
         // =========================
-
         if (action === "exit") {
-
-            if (
-                outpass.outp_status !== "Approved"
-            ) {
-                throw new ApiError(
-                    400,
-                    "Outpass not approved"
-                );
+            if (outpass.outp_status !== "Approved") {
+                throw new ApiError(400, "Outpass not approved");
             }
-
-            if (
-                outpass.std_status === "Out"
-            ) {
-                throw new ApiError(
-                    400,
-                    "Student already outside"
-                );
+            if (outpass.std_status === "Out") {
+                throw new ApiError(400, "Student already outside");
             }
 
             const visitQuery = `
                 INSERT INTO visit_log (
-                    outpass_id,
-                    student_id,
-                    gate,
-                    exit_guard_id
+                    outpass_id, student_id, gate, exit_guard_id
                 )
                 VALUES ($1, $2, $3, $4);
             `;
 
-            await client.query(
-                visitQuery,
-                [
-                    outpass.id,
-                    outpass.student_id,
-                    gate || "Main Gate",
-                    guardId
-                ]
-            );
+            await client.query(visitQuery, [
+                outpass.id,
+                outpass.student_id,
+                gate || "Main Gate",
+                guardId
+            ]);
 
             await client.query(
                 `
                 UPDATE outpass
-                SET
-                    std_status = 'Out',
-                    updated_at = CURRENT_TIMESTAMP
+                SET std_status = 'Out', updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1;
                 `,
                 [outpass.id]
@@ -1932,10 +1670,8 @@ const recordEntry = asyncHandler(async (req, res) => {
                 new ApiResponse(
                     200,
                     {
-                        student_name:
-                            outpass.name,
-                        roll_no:
-                            outpass.roll_no,
+                        student_name: outpass.name,
+                        roll_no: outpass.roll_no,
                         status: "Out"
                     },
                     "Exit recorded successfully"
@@ -1946,26 +1682,18 @@ const recordEntry = asyncHandler(async (req, res) => {
         // =========================
         // ENTRY
         // =========================
-
         if (action === "enter") {
-
-            if (
-                outpass.std_status !== "Out"
-            ) {
-                throw new ApiError(
-                    400,
-                    "Student already inside"
-                );
+            if (outpass.std_status !== "Out") {
+                throw new ApiError(400, "Student already inside");
             }
 
             await client.query(
                 `
                 UPDATE visit_log
                 SET
-                    actual_arrival =
-                        CURRENT_TIMESTAMP,
-                    updated_at =
-                        CURRENT_TIMESTAMP
+                    actual_arrival = CURRENT_TIMESTAMP,
+                    entry_guard_id = $2,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = (
                     SELECT id
                     FROM visit_log
@@ -1974,7 +1702,7 @@ const recordEntry = asyncHandler(async (req, res) => {
                     LIMIT 1
                 );
                 `,
-                [outpass.id]
+                [outpass.id, guardId]
             );
 
             await client.query(
@@ -1983,6 +1711,8 @@ const recordEntry = asyncHandler(async (req, res) => {
                 SET
                     std_status = 'In',
                     is_active = false,
+                    barcode_token = NULL,
+                    barcode_revoked_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1;
                 `,
@@ -2011,10 +1741,8 @@ const recordEntry = asyncHandler(async (req, res) => {
                 new ApiResponse(
                     200,
                     {
-                        student_name:
-                            outpass.name,
-                        roll_no:
-                            outpass.roll_no,
+                        student_name: outpass.name,
+                        roll_no: outpass.roll_no,
                         status: "In"
                     },
                     "Entry recorded successfully"
@@ -2022,19 +1750,12 @@ const recordEntry = asyncHandler(async (req, res) => {
             );
         }
 
-        throw new ApiError(
-            400,
-            "Invalid action"
-        );
+        throw new ApiError(400, "Invalid action");
 
     } catch (error) {
-
         await client.query("ROLLBACK");
-
         throw error;
-
     } finally {
-
         client.release();
     }
 });
@@ -2079,11 +1800,20 @@ const monitorDashboard = asyncHandler(async (req, res) => {
 
         const result = await pool.query(deltaQuery, [ts.toISOString()]);
 
+        // Hide raw token from network payload
+        const safeDeltaOutpasses = result.rows.map(row => {
+            const { barcode_token, ...safeRow } = row;
+            return {
+                ...safeRow,
+                has_barcode: !!barcode_token
+            };
+        });
+
         return res.status(200).json(
             new ApiResponse(
                 200,
                 {
-                    outpasses: result.rows,
+                    outpasses: safeDeltaOutpasses,
                     delta: true,
                     server_time: new Date().toISOString()
                 },
@@ -2133,11 +1863,20 @@ const monitorDashboard = asyncHandler(async (req, res) => {
 
     const total = parseInt(countResult.rows[0].total);
 
+    // Hide raw token from network payload
+    const safeOutpasses = result.rows.map(row => {
+        const { barcode_token, ...safeRow } = row;
+        return {
+            ...safeRow,
+            has_barcode: !!barcode_token
+        };
+    });
+
     return res.status(200).json(
         new ApiResponse(
             200,
             {
-                outpasses: result.rows,
+                outpasses: safeOutpasses,
                 server_time: new Date().toISOString(),
                 pagination: {
                     page,
@@ -2152,7 +1891,6 @@ const monitorDashboard = asyncHandler(async (req, res) => {
         )
     );
 });
-
 
 /*
 =================================================
@@ -2320,6 +2058,177 @@ const syncGuardLogs = asyncHandler(async (req, res) => {
             `Synced ${synced_ids.length} log(s), failed ${failed_ids.length}`
         )
     );
+});
+
+
+// =================================================
+// 1. STUDENT VIEW: Fetch Barcode Image
+// =================================================
+export const getOutpassBarcode = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const requester = req.user;
+
+    if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+        throw new ApiError(400, "Invalid outpass ID");
+    }
+
+    const isStaff = ["warden", "chief-warden", "attendent", "attendant", "guard"].includes(requester?.role);
+
+    const query = isStaff
+        ? `SELECT id, student_id, barcode_token, outp_status, is_active FROM outpass WHERE id = $1`
+        : `SELECT id, student_id, barcode_token, outp_status, is_active FROM outpass WHERE id = $1 AND student_id = $2`;
+
+    const params = isStaff ? [id] : [id, requester.id];
+    const result = await pool.query(query, params);
+
+    if (result.rows.length === 0) {
+        throw new ApiError(404, "Outpass not found");
+    }
+
+    const outpass = result.rows[0];
+
+    if (outpass.outp_status !== "Approved" || !outpass.is_active || !outpass.barcode_token) {
+        throw new ApiError(400, "Barcode is not available for this outpass");
+    }
+
+    // Generate the base64 PNG image from the token
+    const barcodeDataUrl = await generateBarcodeImage(outpass.barcode_token);
+
+    return res.status(200).json(
+        new ApiResponse(200, { barcodeDataUrl }, "Barcode fetched successfully")
+    );
+});
+
+// =================================================
+// 2. GUARD PC: Scan & Verify Barcode
+// =================================================
+export const scanOutpassBarcode = asyncHandler(async (req, res) => {
+    const { token: rawToken, gate } = req.body;
+    const guardId = req.user?.id;
+
+    if (!rawToken) throw new ApiError(400, "Barcode token is required");
+
+    // Removes the "OUTPASS:" prefix
+    const token = parseBarcodePayload(rawToken);
+    
+    if (!token) throw new ApiError(400, "Invalid barcode format");
+
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        // FOR UPDATE locks the row, preventing double-scan race conditions
+        const result = await client.query(
+            `
+            SELECT
+                o.*,
+                s.name,
+                s.roll_no,
+                s.department,
+                s.hostel,
+                s.phone
+            FROM outpass o
+            JOIN student s ON o.student_id = s.id
+            WHERE o.barcode_token = $1
+            FOR UPDATE OF o
+            `,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            throw new ApiError(404, "Invalid or unrecognized barcode");
+        }
+
+        const outpass = result.rows[0];
+
+        if (outpass.outp_status !== "Approved" || !outpass.is_active) {
+            throw new ApiError(400, "This outpass is no longer active");
+        }
+
+        const gateName = gate || "Main Gate";
+        
+        // Automatically determine if the student is leaving or returning
+        const action = outpass.std_status === "Out" ? "entry" : "exit";
+
+        if (action === "exit") {
+            // --- EXIT LOGIC ---
+            await client.query(
+                `
+                INSERT INTO visit_log (outpass_id, student_id, gate, exit_guard_id)
+                VALUES ($1, $2, $3, $4)
+                `,
+                [outpass.id, outpass.student_id, gateName, guardId]
+            );
+
+            await client.query(
+                `
+                UPDATE outpass
+                SET std_status = 'Out', updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+                `,
+                [outpass.id]
+            );
+        } else {
+            // --- ENTRY LOGIC ---
+            await client.query(
+                `
+                UPDATE visit_log
+                SET actual_arrival = CURRENT_TIMESTAMP, entry_guard_id = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = (
+                    SELECT id FROM visit_log WHERE outpass_id = $1 ORDER BY created_at DESC LIMIT 1
+                )
+                `,
+                [outpass.id, guardId]
+            );
+
+            // Close the outpass upon re-entry and kill the barcode permanently
+            await client.query(
+                `
+                UPDATE outpass
+                SET 
+                    std_status = 'In', 
+                    is_active = false, 
+                    barcode_token = NULL,
+                    barcode_revoked_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+                `,
+                [outpass.id]
+            );
+        }
+
+        await client.query("COMMIT");
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                {
+                    action,
+                    outpass: {
+                        id: outpass.id,
+                        outpass_type: outpass.outpass_type,
+                        place_of_visit: outpass.place_of_visit,
+                        std_status: action === "exit" ? "Out" : "In",
+                    },
+                    student: {
+                        id: outpass.student_id,
+                        name: outpass.name,
+                        roll_no: outpass.roll_no,
+                        department: outpass.department,
+                        hostel: outpass.hostel,
+                    },
+                },
+                action === "exit" ? "Exit authorized successfully" : "Entry authorized successfully"
+            )
+        );
+
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 });
 
 

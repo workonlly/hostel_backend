@@ -15,7 +15,9 @@ import {
     getLateReturns,
     recordEntry,
     monitorDashboard,
-    syncGuardLogs
+    syncGuardLogs,
+    scanOutpassBarcode,
+    getOutpassBarcode
 } from "../controllers/outpass.controller.js";
 
 const router = Router();
@@ -52,14 +54,15 @@ router.patch(
 
 /*
 =================================================
-ATTENDENT ROUTES
+ATTENDANT ROUTES
 =================================================
 */
 router.patch(
-  "/bulk-action",
-  auth,
-  bulkOutpassAction
+    "/bulk-action",
+    auth,
+    bulkOutpassAction
 );
+
 router.get(
     "/pending",
     auth,
@@ -91,6 +94,12 @@ GUARD ROUTES
 */
 
 router.post(
+    "/scan",
+    auth,
+    scanOutpassBarcode
+);
+
+router.post(
     "/record-entry",
     auth,
     recordEntry
@@ -116,10 +125,17 @@ router.get(
 
 /*
 =================================================
-GET SINGLE OUTPASS
-KEEP THIS LAST
+GET SINGLE OUTPASS & BARCODE
+KEEP THESE LAST
 =================================================
 */
+
+// MUST be placed before /:id to prevent "barcode" from being treated as an ID
+router.get(
+    "/:id/barcode",
+    auth,
+    getOutpassBarcode
+);
 
 router.get(
     "/:id",

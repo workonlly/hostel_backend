@@ -941,6 +941,27 @@ router.post('/signup', async (req, res) => {
 // CURRENT USER
 // GET /api/auth/me
 // ======================================================
+router.get('/hostels', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, name, type, total_capacity
+             FROM hostel
+             ORDER BY name ASC`
+        );
+
+        return res.status(200).json({
+            success: true,
+            hostels: result.rows
+        });
+    } catch (err) {
+        console.error('[Auth] Get hostels error:', err.message);
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch hostels'
+        });
+    }
+});
 
 router.get('/me', auth, async (req, res) => {
     const { id, email, role } = req.user;
